@@ -13,10 +13,16 @@ export type NodeState = "normal" | "selected" | "related" | "dimmed";
 export type TableNodeData = {
   table: Table;
   state: NodeState;
+  /** Column name that is the active focus (hovered or pinned) on this node, if any. */
+  activeColumnName: string | null;
+  /** Column names highlighted as the other side of an FK involving the active column. */
+  relatedColumnNames: ReadonlySet<string>;
   [key: string]: unknown;
 };
 
 export type TableNode = Node<TableNodeData, "table">;
+
+const EMPTY_COLUMN_SET: ReadonlySet<string> = new Set<string>();
 
 /** Estimated node height; the CSS uses these exact row/header sizes so the
  *  rendered node matches what the layout engine was given (no measure pass). */
@@ -47,7 +53,12 @@ export function buildGraph(
     position: { x: 0, y: 0 },
     width: NODE_WIDTH,
     height: nodeHeight(table),
-    data: { table, state: "normal" },
+    data: {
+      table,
+      state: "normal",
+      activeColumnName: null,
+      relatedColumnNames: EMPTY_COLUMN_SET,
+    },
   }));
 
   const edges: Edge[] = schema.relationships

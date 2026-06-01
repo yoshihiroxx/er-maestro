@@ -491,6 +491,24 @@ input[type="search"] {
   border: 1px solid var(--panel);
 }
 
+/* column-level highlight: a single column on a table is the active focus */
+.table-node__row {
+  cursor: pointer;
+  transition: background 0.08s;
+}
+.table-node__row--active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.table-node__row--related {
+  background: #fef3c7;
+  box-shadow: inset 2px 0 0 var(--pk);
+}
+.table-node__row--active:hover,
+.table-node__row--related:hover {
+  filter: brightness(0.98);
+}
+
 /* ---------- Edges ---------- */
 .react-flow__edge.edge--active .react-flow__edge-path {
   stroke: var(--accent);
@@ -506,6 +524,13 @@ input[type="search"] {
 .react-flow__edge.edge--view-dependency .react-flow__edge-path {
   stroke: #047857;
   stroke-dasharray: 2 4;
+}
+.react-flow__edge.edge--column-active .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.react-flow__edge.edge--column-dim {
+  opacity: 0.18;
 }
 
 /* ---------- Modal ---------- */
