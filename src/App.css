@@ -63,6 +63,7 @@ input[type="search"] {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
 }
 .app__body {
   flex: 1;
@@ -73,6 +74,41 @@ input[type="search"] {
   flex: 1;
   position: relative;
   min-width: 0;
+}
+
+/* ---------- Drag overlay ---------- */
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(37, 99, 235, 0.12);
+  border: 3px dashed var(--accent);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.drag-overlay__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 32px 48px;
+  box-shadow: 0 4px 24px rgba(37, 99, 235, 0.2);
+}
+.drag-overlay__icon {
+  font-size: 48px;
+  color: var(--accent);
+  line-height: 1;
+}
+.drag-overlay__label {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 /* ---------- Toolbar ---------- */
