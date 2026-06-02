@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Generated bench fixtures (scripts/gen-bench-schema.mjs output)
+tmp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
