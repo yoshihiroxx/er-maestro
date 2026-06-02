@@ -19,6 +19,12 @@ interface SchemaState {
   focusDepth: number;
   layoutKind: LayoutKind;
   searchQuery: string;
+  /**
+   * Bumped whenever the user explicitly asks to center the viewport on the
+   * selected table (e.g. pressing Enter in the sidebar search). Canvas watches
+   * this counter to pan/zoom instead of just fitting all visible nodes.
+   */
+  jumpToken: number;
 
   loadFromPaths: (paths: string[]) => Promise<void>;
   setSchema: (schema: SchemaModel, label?: string) => void;
@@ -29,6 +35,8 @@ interface SchemaState {
   setSearchQuery: (query: string) => void;
   clearSelection: () => void;
   reset: () => void;
+  /** Select `id` and signal Canvas to center on it. */
+  jumpToTable: (id: string) => void;
 }
 
 export const useSchemaStore = create<SchemaState>((set) => ({
@@ -42,6 +50,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   focusDepth: 1,
   layoutKind: "dagre-lr",
   searchQuery: "",
+  jumpToken: 0,
 
   loadFromPaths: async (paths) => {
     set({ status: "loading", error: null });
@@ -76,6 +85,8 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   setLayoutKind: (kind) => set({ layoutKind: kind }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   clearSelection: () => set({ selectedTableId: null }),
+  jumpToTable: (id) =>
+    set((s) => ({ selectedTableId: id, jumpToken: s.jumpToken + 1 })),
   reset: () =>
     set({
       schema: null,

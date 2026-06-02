@@ -18,6 +18,7 @@ import { buildGraph, type NodeState, type TableNode as TNode } from "../graph/bu
 import { buildAdjacency, relatedTables } from "../graph/neighbors";
 import { runLayout } from "../graph/layout";
 import { TableNode } from "./TableNode";
+import { KeyboardShortcuts } from "./KeyboardShortcuts";
 
 // Defined at module scope so the reference is stable across renders
 // (inline objects would remount every node and spam a console warning).
@@ -31,8 +32,9 @@ export function Canvas() {
   const layoutKind = useSchemaStore((s) => s.layoutKind);
   const selectTable = useSchemaStore((s) => s.selectTable);
   const clearSelection = useSchemaStore((s) => s.clearSelection);
+  const jumpToken = useSchemaStore((s) => s.jumpToken);
 
-  const { fitView } = useReactFlow();
+  const { fitView, setCenter } = useReactFlow();
 
   const base = useMemo(
     () => (schema ? buildGraph(schema) : { nodes: [], edges: [] }),
@@ -97,11 +99,34 @@ export function Canvas() {
   }, [edges, related, focusMode]);
 
   // Re-fit when the focus selection changes (visible set shrinks/grows).
+  // Skipped on the render where `jumpToken` advanced, so that the explicit
+  // search-jump effect below can center on a specific node without being
+  // immediately overwritten by fitView.
+  const fittedJumpToken = useRef(jumpToken);
   useEffect(() => {
     if (nodes.length === 0) return;
+    if (fittedJumpToken.current !== jumpToken) {
+      fittedJumpToken.current = jumpToken;
+      return;
+    }
     const id = requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
     return () => cancelAnimationFrame(id);
-  }, [selectedTableId, focusMode, focusDepth, fitView, nodes.length]);
+  }, [selectedTableId, focusMode, focusDepth, fitView, nodes.length, jumpToken]);
+
+  // Search → Enter → center the viewport on the selected table.
+  useEffect(() => {
+    if (jumpToken === 0 || !selectedTableId) return;
+    const node = nodes.find((n) => n.id === selectedTableId);
+    if (!node) return;
+    const w = node.measured?.width ?? node.width ?? 240;
+    const h = node.measured?.height ?? node.height ?? 80;
+    const cx = node.position.x + w / 2;
+    const cy = node.position.y + h / 2;
+    const id = requestAnimationFrame(() =>
+      setCenter(cx, cy, { zoom: 1.0, duration: 400 }),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [jumpToken, selectedTableId, nodes, setCenter]);
 
   const onNodeClick = useCallback<NodeMouseHandler>(
     (_event, node) => selectTable(node.id),
@@ -129,6 +154,7 @@ export function Canvas() {
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
       <Controls showInteractive={false} />
       <MiniMap pannable zoomable nodeStrokeWidth={2} />
+      <KeyboardShortcuts />
     </ReactFlow>
   );
 }

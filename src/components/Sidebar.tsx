@@ -7,6 +7,7 @@ export function Sidebar() {
   const searchQuery = useSchemaStore((s) => s.searchQuery);
   const setSearchQuery = useSchemaStore((s) => s.setSearchQuery);
   const selectTable = useSchemaStore((s) => s.selectTable);
+  const jumpToTable = useSchemaStore((s) => s.jumpToTable);
 
   const [showWarnings, setShowWarnings] = useState(false);
 
@@ -37,10 +38,18 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__search">
         <input
+          id="sidebar-search-input"
           type="search"
-          placeholder="テーブル / カラムを検索…"
+          placeholder="テーブル / カラムを検索…  ( / でフォーカス )"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && tables.length > 0) {
+              e.preventDefault();
+              jumpToTable(tables[0].id);
+              e.currentTarget.blur();
+            }
+          }}
         />
       </div>
 
