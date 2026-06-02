@@ -6,9 +6,9 @@
 use std::collections::{HashMap, HashSet};
 
 use sqlparser::ast::{
-    AlterTable, AlterTableOperation, CreateTable, CreateView, Expr, ForeignKeyConstraint, Ident,
-    IndexColumn, ObjectName, Query, SetExpr, Spanned, Statement, TableConstraint, TableFactor,
-    TableWithJoins,
+    AlterTable, AlterTableOperation, ColumnDef, CreateTable, CreateView, Expr,
+    ForeignKeyConstraint, Ident, IndexColumn, ObjectName, Query, SetExpr, Spanned, Statement,
+    TableConstraint, TableFactor, TableWithJoins,
 };
 use sqlparser::tokenizer::Span;
 
@@ -93,42 +93,7 @@ impl Accumulator {
         let mut columns: Vec<Column> = Vec::with_capacity(ct.columns.len());
 
         for col in &ct.columns {
-            let col_name = col.name.value.clone();
-            let mut c = Column {
-                name: col_name.clone(),
-                data_type: col.data_type.to_string(),
-                nullable: true,
-                is_primary_key: false,
-                is_foreign_key: false,
-                default: None,
-                unique: false,
-            };
-            for opt in &col.options {
-                use sqlparser::ast::ColumnOption::*;
-                match &opt.option {
-                    NotNull => c.nullable = false,
-                    Null => c.nullable = true,
-                    PrimaryKey(_) => {
-                        c.is_primary_key = true;
-                        c.nullable = false;
-                    }
-                    Unique(_) => c.unique = true,
-                    Default(expr) => c.default = Some(expr.to_string()),
-                    ForeignKey(fk) => {
-                        c.is_foreign_key = true;
-                        let from_cols = if fk.columns.is_empty() {
-                            vec![col_name.clone()]
-                        } else {
-                            idents_to_strings(&fk.columns)
-                        };
-                        let (line, column) =
-                            first_known(location_from_span(opt.span()), (stmt_line, stmt_column));
-                        self.push_fk(&key, from_cols, fk, source_file, line, column);
-                    }
-                    _ => {}
-                }
-            }
-            columns.push(c);
+            columns.push(self.column_from_def(col, &key, source_file, stmt_line, stmt_column));
         }
 
         for constraint in &ct.constraints {
@@ -183,17 +148,95 @@ impl Accumulator {
         }
         let key = table_key(schema.as_deref(), &name);
         for op in &at.operations {
-            if let AlterTableOperation::AddConstraint { constraint, .. } = op {
-                if let TableConstraint::ForeignKey(fk) = constraint {
-                    let from_cols = idents_to_strings(&fk.columns);
-                    let (line, column) = first_known(
-                        location_from_span(constraint.span()),
-                        (stmt_line, stmt_column),
-                    );
-                    self.push_fk(&key, from_cols, fk, source_file, line, column);
+            match op {
+                AlterTableOperation::AddConstraint { constraint, .. } => {
+                    if let TableConstraint::ForeignKey(fk) = constraint {
+                        let from_cols = idents_to_strings(&fk.columns);
+                        let (line, column) = first_known(
+                            location_from_span(constraint.span()),
+                            (stmt_line, stmt_column),
+                        );
+                        self.push_fk(&key, from_cols, fk, source_file, line, column);
+                    }
                 }
+                AlterTableOperation::AddColumn { column_def, .. } => {
+                    let Some(&table_index) = self.index.get(&key) else {
+                        self.warnings.push(
+                            ParseWarning::new(format!(
+                                "ALTER TABLE `{}` ADD COLUMN `{}` targets unknown table — column skipped",
+                                key, column_def.name.value
+                            ))
+                            .with_location(Some(source_file.to_string()), stmt_line, stmt_column),
+                        );
+                        continue;
+                    };
+                    if self.tables[table_index]
+                        .columns
+                        .iter()
+                        .any(|c| c.name.eq_ignore_ascii_case(&column_def.name.value))
+                    {
+                        self.warnings.push(
+                            ParseWarning::new(format!(
+                                "Duplicate column `{}` on table `{}` (later ADD COLUMN in {} ignored)",
+                                column_def.name.value, key, source_file
+                            ))
+                            .with_location(Some(source_file.to_string()), stmt_line, stmt_column),
+                        );
+                        continue;
+                    }
+                    let column =
+                        self.column_from_def(column_def, &key, source_file, stmt_line, stmt_column);
+                    self.tables[table_index].columns.push(column);
+                }
+                _ => {}
             }
         }
+    }
+
+    fn column_from_def(
+        &mut self,
+        col: &ColumnDef,
+        from_key: &str,
+        source_file: &str,
+        stmt_line: Option<usize>,
+        stmt_column: Option<usize>,
+    ) -> Column {
+        let col_name = col.name.value.clone();
+        let mut c = Column {
+            name: col_name.clone(),
+            data_type: col.data_type.to_string(),
+            nullable: true,
+            is_primary_key: false,
+            is_foreign_key: false,
+            default: None,
+            unique: false,
+        };
+        for opt in &col.options {
+            use sqlparser::ast::ColumnOption::*;
+            match &opt.option {
+                NotNull => c.nullable = false,
+                Null => c.nullable = true,
+                PrimaryKey(_) => {
+                    c.is_primary_key = true;
+                    c.nullable = false;
+                }
+                Unique(_) => c.unique = true,
+                Default(expr) => c.default = Some(expr.to_string()),
+                ForeignKey(fk) => {
+                    c.is_foreign_key = true;
+                    let from_cols = if fk.columns.is_empty() {
+                        vec![col_name.clone()]
+                    } else {
+                        idents_to_strings(&fk.columns)
+                    };
+                    let (line, column) =
+                        first_known(location_from_span(opt.span()), (stmt_line, stmt_column));
+                    self.push_fk(from_key, from_cols, fk, source_file, line, column);
+                }
+                _ => {}
+            }
+        }
+        c
     }
 
     fn ingest_create_view(

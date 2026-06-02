@@ -168,6 +168,70 @@ mod tests {
     }
 
     #[test]
+    fn alter_table_add_column_merges_into_existing_table() {
+        let sql = r#"
+            CREATE TABLE work_sessions (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'queued'
+            );
+            ALTER TABLE work_sessions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE work_sessions ADD COLUMN usage_capture_mode TEXT NOT NULL DEFAULT 'structured';
+        "#;
+        let m = parse_text(sql, Some("sqlite"));
+        let work_sessions = m.tables.iter().find(|t| t.id == "work_sessions").unwrap();
+
+        assert!(work_sessions
+            .columns
+            .iter()
+            .any(|c| c.name == "usage_capture_mode"
+                && c.data_type == "TEXT"
+                && !c.nullable
+                && c.default.as_deref() == Some("'structured'")));
+        assert!(work_sessions
+            .columns
+            .iter()
+            .any(|c| c.name == "input_tokens"));
+    }
+
+    #[test]
+    fn alter_table_add_column_with_inline_fk_resolves() {
+        let sql = r#"
+            CREATE TABLE users (id INT PRIMARY KEY);
+            CREATE TABLE posts (id INT PRIMARY KEY);
+            ALTER TABLE posts ADD COLUMN user_id INT REFERENCES users (id);
+        "#;
+        let m = parse_text(sql, None);
+        let posts = m.tables.iter().find(|t| t.id == "posts").unwrap();
+        let user_id = posts.columns.iter().find(|c| c.name == "user_id").unwrap();
+        assert!(user_id.is_foreign_key);
+
+        assert_eq!(m.relationships.len(), 1);
+        assert_eq!(m.relationships[0].from_table, "posts");
+        assert_eq!(m.relationships[0].from_columns, vec!["user_id"]);
+        assert_eq!(m.relationships[0].to_table, "users");
+    }
+
+    #[test]
+    fn alter_table_add_column_skips_duplicates() {
+        let sql = r#"
+            CREATE TABLE work_sessions (id TEXT PRIMARY KEY);
+            ALTER TABLE work_sessions ADD COLUMN id TEXT;
+        "#;
+        let m = parse_text(sql, None);
+        let work_sessions = m.tables.iter().find(|t| t.id == "work_sessions").unwrap();
+
+        assert_eq!(
+            work_sessions
+                .columns
+                .iter()
+                .filter(|c| c.name == "id")
+                .count(),
+            1
+        );
+        assert!(m.warnings.iter().any(|w| w.contains("Duplicate column")));
+    }
+
+    #[test]
     fn schema_qualified_names_normalize() {
         let sql = r#"
             CREATE TABLE public.users (id SERIAL PRIMARY KEY);
