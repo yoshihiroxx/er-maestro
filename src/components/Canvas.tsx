@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   MiniMap,
   ReactFlow,
@@ -34,8 +35,10 @@ export function Canvas() {
   const focusDepth = useSchemaStore((s) => s.focusDepth);
   const layoutKind = useSchemaStore((s) => s.layoutKind);
   const inferenceEnabled = useSchemaStore((s) => s.inferenceEnabled);
+  const autoFitOnScope = useSchemaStore((s) => s.autoFitOnScope);
   const selectTable = useSchemaStore((s) => s.selectTable);
   const clearSelection = useSchemaStore((s) => s.clearSelection);
+  const setAutoFitOnScope = useSchemaStore((s) => s.setAutoFitOnScope);
   const jumpToken = useSchemaStore((s) => s.jumpToken);
 
   const { fitView, setCenter } = useReactFlow();
@@ -186,7 +189,9 @@ export function Canvas() {
     });
   }, [edges, related, focusMode, activeColumn, activeEdgeIds]);
 
-  // Re-fit when the focus selection changes (visible set shrinks/grows).
+  // Re-fit when the focus selection changes (visible set shrinks/grows), but
+  // only while the user opts into scope auto-fit. Schema load/layout changes
+  // still fit in the layout effect above, and search jumps still center below.
   // Skipped on the render where `jumpToken` advanced, so that the explicit
   // search-jump effect below can center on a specific node without being
   // immediately overwritten by fitView.
@@ -197,6 +202,7 @@ export function Canvas() {
       fittedJumpToken.current = jumpToken;
       return;
     }
+    if (!useSchemaStore.getState().autoFitOnScope) return;
     const id = requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
     return () => cancelAnimationFrame(id);
   }, [selectedTableId, focusMode, focusDepth, fitView, nodes.length, jumpToken]);
@@ -240,7 +246,38 @@ export function Canvas() {
       fitView
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-      <Controls showInteractive={false} />
+      <Controls showInteractive={false}>
+        <ControlButton
+          onClick={() => setAutoFitOnScope(!autoFitOnScope)}
+          className={`autofit-toggle ${
+            autoFitOnScope ? "autofit-toggle--on" : "autofit-toggle--off"
+          }`}
+          title={
+            autoFitOnScope
+              ? "スコープ切替時に自動フィット: ON"
+              : "スコープ切替時に自動フィット: OFF"
+          }
+          aria-label={
+            autoFitOnScope
+              ? "スコープ切替時に自動フィット: ON"
+              : "スコープ切替時に自動フィット: OFF"
+          }
+          aria-pressed={autoFitOnScope}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+            {!autoFitOnScope ? <line x1="5" y1="5" x2="19" y2="19" /> : null}
+          </svg>
+        </ControlButton>
+      </Controls>
       <MiniMap pannable zoomable nodeStrokeWidth={2} />
       <KeyboardShortcuts />
     </ReactFlow>

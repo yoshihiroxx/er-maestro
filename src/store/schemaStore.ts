@@ -14,6 +14,7 @@ export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
 export type Status = "idle" | "loading" | "error";
 
 const INFERENCE_STORAGE_KEY = "er-maestro:inferenceEnabled";
+const AUTO_FIT_ON_SCOPE_STORAGE_KEY = "er-maestro:autoFitOnScope";
 
 function readInferencePref(): boolean {
   if (typeof window === "undefined") return true;
@@ -30,6 +31,26 @@ function writeInferencePref(on: boolean): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(INFERENCE_STORAGE_KEY, String(on));
+  } catch {
+    // Storage quota / private mode - ignore; runtime state still works.
+  }
+}
+
+function readAutoFitOnScopePref(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(AUTO_FIT_ON_SCOPE_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function writeAutoFitOnScopePref(on: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AUTO_FIT_ON_SCOPE_STORAGE_KEY, String(on));
   } catch {
     // Storage quota / private mode - ignore; runtime state still works.
   }
@@ -57,6 +78,11 @@ interface SchemaState {
   searchQuery: string;
   inferenceEnabled: boolean;
   /**
+   * When true, selecting/focusing a scope auto-fits the viewport. Schema loads,
+   * layout changes, and explicit search jumps still move the viewport either way.
+   */
+  autoFitOnScope: boolean;
+  /**
    * Bumped whenever the user explicitly asks to center the viewport on the
    * selected table (e.g. pressing Enter in the sidebar search). Canvas watches
    * this counter to pan/zoom instead of just fitting all visible nodes.
@@ -78,6 +104,7 @@ interface SchemaState {
   setLayoutKind: (kind: LayoutKind) => void;
   setSearchQuery: (query: string) => void;
   setInferenceEnabled: (on: boolean) => void;
+  setAutoFitOnScope: (on: boolean) => void;
   clearSelection: () => void;
   reset: () => void;
   /** Select `id` and signal Canvas to center on it. */
@@ -109,6 +136,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   layoutKind: "dagre-lr",
   searchQuery: "",
   inferenceEnabled: readInferencePref(),
+  autoFitOnScope: readAutoFitOnScopePref(),
   jumpToken: 0,
   sqlPasteOpen: false,
   recent: [],
@@ -181,6 +209,10 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   setInferenceEnabled: (on) => {
     writeInferencePref(on);
     set({ inferenceEnabled: on });
+  },
+  setAutoFitOnScope: (on) => {
+    writeAutoFitOnScopePref(on);
+    set({ autoFitOnScope: on });
   },
   clearSelection: () =>
     set({ selectedTableId: null, hoveredColumn: null, pinnedColumn: null }),

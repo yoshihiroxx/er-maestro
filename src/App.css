@@ -532,6 +532,16 @@ input[type="search"] {
 .react-flow__edge.edge--column-dim {
   opacity: 0.18;
 }
+.autofit-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+.autofit-toggle--on {
+  color: var(--accent);
+}
+.autofit-toggle--off {
+  color: var(--muted);
+}
 
 /* ---------- Modal ---------- */
 .modal-backdrop {
