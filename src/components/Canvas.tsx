@@ -70,6 +70,11 @@ export function Canvas() {
     return relatedTables(adjacency, selectedTableId, focusDepth);
   }, [adjacency, selectedTableId, focusDepth]);
 
+  // Reuse the same node/edge object when nothing relevant changed. React
+  // Flow diffs nodes by reference, and TableNode is memoized on `data`, so
+  // keeping references stable for unaffected tables means selection toggles
+  // re-render only the few nodes whose state actually flipped — a noticeable
+  // win on multi-hundred-table schemas (see scripts/bench-graph.mjs).
   const displayNodes = useMemo<TNode[]>(() => {
     return nodes.map((n) => {
       let state: NodeState = "normal";
@@ -82,19 +87,22 @@ export function Canvas() {
           hidden = focusMode;
         }
       }
+      if (n.data.state === state && (n.hidden ?? false) === hidden) return n;
       return { ...n, hidden, data: { ...n.data, state } };
     });
   }, [nodes, related, selectedTableId, focusMode]);
 
   const displayEdges = useMemo<Edge[]>(() => {
     return edges.map((e) => {
-      if (!related) return { ...e, hidden: false, className: undefined };
-      const active = related.has(e.source) && related.has(e.target);
-      return {
-        ...e,
-        hidden: focusMode ? !active : false,
-        className: active ? "edge--active" : "edge--dim",
-      };
+      let hidden = false;
+      let className: string | undefined;
+      if (related) {
+        const active = related.has(e.source) && related.has(e.target);
+        hidden = focusMode ? !active : false;
+        className = active ? "edge--active" : "edge--dim";
+      }
+      if ((e.hidden ?? false) === hidden && e.className === className) return e;
+      return { ...e, hidden, className };
     });
   }, [edges, related, focusMode]);
 
