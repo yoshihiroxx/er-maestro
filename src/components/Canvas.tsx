@@ -23,10 +23,13 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts";
 // Defined at module scope so the reference is stable across renders
 // (inline objects would remount every node and spam a console warning).
 const nodeTypes = { table: TableNode };
+const EMPTY_COLUMN_SET: ReadonlySet<string> = new Set<string>();
 
 export function Canvas() {
   const schema = useSchemaStore((s) => s.schema);
   const selectedTableId = useSchemaStore((s) => s.selectedTableId);
+  const hoveredColumn = useSchemaStore((s) => s.hoveredColumn);
+  const pinnedColumn = useSchemaStore((s) => s.pinnedColumn);
   const focusMode = useSchemaStore((s) => s.focusMode);
   const focusDepth = useSchemaStore((s) => s.focusDepth);
   const layoutKind = useSchemaStore((s) => s.layoutKind);
@@ -79,6 +82,39 @@ export function Canvas() {
     return relatedTables(adjacency, selectedTableId, focusDepth);
   }, [adjacency, selectedTableId, focusDepth]);
 
+  // Pinned takes precedence over hovered so that clicking locks the focus
+  // even as the cursor leaves the row.
+  const activeColumn = pinnedColumn ?? hoveredColumn;
+
+  // For the active column, pre-compute which edges connect it and which
+  // columns on the *other* side of each FK should light up.
+  const { relatedByTable, activeEdgeIds } = useMemo(() => {
+    const byTable = new Map<string, Set<string>>();
+    const edgeIds = new Set<string>();
+    if (!activeColumn || !schema) {
+      return { relatedByTable: byTable, activeEdgeIds: edgeIds };
+    }
+    for (const r of schema.relationships) {
+      const fromSide =
+        r.from_table === activeColumn.tableId &&
+        r.from_columns.includes(activeColumn.columnName);
+      const toSide =
+        r.to_table === activeColumn.tableId &&
+        r.to_columns.includes(activeColumn.columnName);
+      if (!fromSide && !toSide) continue;
+      edgeIds.add(r.id);
+      const otherTable = fromSide ? r.to_table : r.from_table;
+      const otherCols = fromSide ? r.to_columns : r.from_columns;
+      let set = byTable.get(otherTable);
+      if (!set) {
+        set = new Set<string>();
+        byTable.set(otherTable, set);
+      }
+      for (const c of otherCols) set.add(c);
+    }
+    return { relatedByTable: byTable, activeEdgeIds: edgeIds };
+  }, [activeColumn, schema]);
+
   // Reuse the same node/edge object when nothing relevant changed. React
   // Flow diffs nodes by reference, and TableNode is memoized on `data`, so
   // keeping references stable for unaffected tables means selection toggles
@@ -96,27 +132,59 @@ export function Canvas() {
           hidden = focusMode;
         }
       }
-      if (n.data.state === state && (n.hidden ?? false) === hidden) return n;
-      return { ...n, hidden, data: { ...n.data, state } };
+      const nodeActiveColumnName =
+        activeColumn && activeColumn.tableId === n.id
+          ? activeColumn.columnName
+          : null;
+      const nodeRelatedColumns = relatedByTable.get(n.id) ?? EMPTY_COLUMN_SET;
+      if (
+        n.data.state === state &&
+        (n.hidden ?? false) === hidden &&
+        n.data.activeColumnName === nodeActiveColumnName &&
+        n.data.relatedColumnNames === nodeRelatedColumns
+      ) {
+        return n;
+      }
+      return {
+        ...n,
+        hidden,
+        data: {
+          ...n.data,
+          state,
+          activeColumnName: nodeActiveColumnName,
+          relatedColumnNames: nodeRelatedColumns,
+        },
+      };
     });
-  }, [nodes, related, selectedTableId, focusMode]);
+  }, [nodes, related, selectedTableId, focusMode, activeColumn, relatedByTable]);
 
   const displayEdges = useMemo<Edge[]>(() => {
+    const hasActiveColumn = activeColumn !== null;
     return edges.map((e) => {
+      const isColumnActive = activeEdgeIds.has(e.id);
       let hidden = false;
-      const baseClassName = e.className;
-      let className = baseClassName;
-      if (related) {
+      let className: string | undefined;
+      if (!related) {
+        if (hasActiveColumn) {
+          className = isColumnActive ? "edge--column-active" : "edge--column-dim";
+        }
+      } else {
         const active = related.has(e.source) && related.has(e.target);
         hidden = focusMode ? !active : false;
-        className = [baseClassName, active ? "edge--active" : "edge--dim"]
-          .filter(Boolean)
-          .join(" ");
+        if (hasActiveColumn) {
+          className = isColumnActive
+            ? "edge--column-active"
+            : active
+            ? "edge--column-dim"
+            : "edge--dim";
+        } else {
+          className = active ? "edge--active" : "edge--dim";
+        }
       }
       if ((e.hidden ?? false) === hidden && e.className === className) return e;
       return { ...e, hidden, className };
     });
-  }, [edges, related, focusMode]);
+  }, [edges, related, focusMode, activeColumn, activeEdgeIds]);
 
   // Re-fit when the focus selection changes (visible set shrinks/grows).
   // Skipped on the render where `jumpToken` advanced, so that the explicit
