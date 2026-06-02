@@ -1,8 +1,11 @@
-import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
+import ELK, { type ElkNode } from "elkjs/lib/elk-api";
+import ElkWorker from "elkjs/lib/elk-worker.min.js?worker";
 import type { Edge } from "@xyflow/react";
 import { NODE_WIDTH, nodeHeight, type TableNode } from "../buildGraph";
 
-const elk = new ELK();
+const elk = new ELK({
+  workerFactory: () => new ElkWorker(),
+});
 
 const LAYOUT_OPTIONS: Record<string, string> = {
   "elk.algorithm": "layered",
@@ -16,6 +19,8 @@ const LAYOUT_OPTIONS: Record<string, string> = {
 /**
  * Layered, orthogonal layout via ELK. Asynchronous; node sizes come from our
  * estimates. Edges are returned unchanged (we keep React Flow's own routing).
+ * The actual layout runs on a Web Worker so the main thread stays responsive
+ * for large schemas.
  */
 export async function layoutElk(
   nodes: TableNode[],
