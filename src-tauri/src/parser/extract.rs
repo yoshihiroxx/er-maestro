@@ -138,11 +138,13 @@ impl Accumulator {
         }
         let key = table_key(schema.as_deref(), &name);
         for op in &at.operations {
-            if let AlterTableOperation::AddConstraint { constraint, .. } = op {
-                if let TableConstraint::ForeignKey(fk) = constraint {
-                    let from_cols = idents_to_strings(&fk.columns);
-                    self.push_fk(&key, from_cols, fk);
-                }
+            if let AlterTableOperation::AddConstraint {
+                constraint: TableConstraint::ForeignKey(fk),
+                ..
+            } = op
+            {
+                let from_cols = idents_to_strings(&fk.columns);
+                self.push_fk(&key, from_cols, fk);
             }
         }
     }
