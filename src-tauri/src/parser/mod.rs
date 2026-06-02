@@ -82,7 +82,11 @@ mod tests {
         assert_eq!(rel.on_delete.as_deref(), Some("CASCADE"));
 
         let posts = m.tables.iter().find(|t| t.id == "posts").unwrap();
-        let author = posts.columns.iter().find(|c| c.name == "author_id").unwrap();
+        let author = posts
+            .columns
+            .iter()
+            .find(|c| c.name == "author_id")
+            .unwrap();
         assert!(author.is_foreign_key);
         assert!(!author.nullable);
         let id_col = posts.columns.iter().find(|c| c.name == "id").unwrap();
@@ -146,7 +150,13 @@ mod tests {
         assert_eq!(m.relationships[0].from_table, "b");
         assert_eq!(m.relationships[0].to_table, "a");
         let b = m.tables.iter().find(|t| t.id == "b").unwrap();
-        assert!(b.columns.iter().find(|c| c.name == "a_id").unwrap().is_foreign_key);
+        assert!(
+            b.columns
+                .iter()
+                .find(|c| c.name == "a_id")
+                .unwrap()
+                .is_foreign_key
+        );
     }
 
     #[test]
@@ -177,7 +187,14 @@ mod tests {
         assert!(m.warnings.iter().any(|w| w.contains("unknown table")));
         // The local column is still flagged as a foreign key.
         let orders = &m.tables[0];
-        assert!(orders.columns.iter().find(|c| c.name == "customer_id").unwrap().is_foreign_key);
+        assert!(
+            orders
+                .columns
+                .iter()
+                .find(|c| c.name == "customer_id")
+                .unwrap()
+                .is_foreign_key
+        );
     }
 
     #[test]

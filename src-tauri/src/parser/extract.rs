@@ -253,7 +253,9 @@ fn idents_to_strings(idents: &[Ident]) -> Vec<String> {
 }
 
 fn index_column_names(cols: &[IndexColumn]) -> Vec<String> {
-    cols.iter().filter_map(|ic| expr_ident(&ic.column.expr)).collect()
+    cols.iter()
+        .filter_map(|ic| expr_ident(&ic.column.expr))
+        .collect()
 }
 
 fn expr_ident(e: &Expr) -> Option<String> {
