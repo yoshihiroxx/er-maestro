@@ -7,9 +7,11 @@ use std::collections::{HashMap, HashSet};
 
 use sqlparser::ast::{
     AlterTable, AlterTableOperation, CreateTable, Expr, ForeignKeyConstraint, Ident, IndexColumn,
-    ObjectName, Statement, TableConstraint,
+    ObjectName, Spanned, Statement, TableConstraint,
 };
+use sqlparser::tokenizer::Span;
 
+use super::dialect::ParseWarning;
 use crate::model::{table_key, Column, Relationship, SchemaModel, Table};
 
 /// Accumulates tables and pending foreign keys across many files/statements,
@@ -20,7 +22,7 @@ pub struct Accumulator {
     /// normalized table key -> index into `tables`
     index: HashMap<String, usize>,
     pending: Vec<PendingFk>,
-    warnings: Vec<String>,
+    warnings: Vec<ParseWarning>,
 }
 
 struct PendingFk {
@@ -30,6 +32,9 @@ struct PendingFk {
     to_columns: Vec<String>,
     on_delete: Option<String>,
     on_update: Option<String>,
+    source_file: Option<String>,
+    line: Option<usize>,
+    column: Option<usize>,
 }
 
 impl Accumulator {
@@ -38,21 +43,34 @@ impl Accumulator {
     }
 
     pub fn warn(&mut self, msg: String) {
-        self.warnings.push(msg);
+        self.warnings.push(ParseWarning::new(msg));
+    }
+
+    pub fn warn_raw(&mut self, warning: ParseWarning) {
+        self.warnings.push(warning);
     }
 
     /// Feed every statement parsed from one source file.
     pub fn ingest(&mut self, statements: Vec<Statement>, source_file: &str) {
         for stmt in statements {
+            let (line, column) = location_from_span(stmt.span());
             match stmt {
-                Statement::CreateTable(ct) => self.ingest_create_table(ct, source_file),
-                Statement::AlterTable(at) => self.ingest_alter_table(at),
+                Statement::CreateTable(ct) => {
+                    self.ingest_create_table(ct, source_file, line, column)
+                }
+                Statement::AlterTable(at) => self.ingest_alter_table(at, source_file, line, column),
                 _ => {}
             }
         }
     }
 
-    fn ingest_create_table(&mut self, ct: CreateTable, source_file: &str) {
+    fn ingest_create_table(
+        &mut self,
+        ct: CreateTable,
+        source_file: &str,
+        stmt_line: Option<usize>,
+        stmt_column: Option<usize>,
+    ) {
         let (schema, name) = split_object_name(&ct.name);
         if name.is_empty() {
             return;
@@ -89,7 +107,9 @@ impl Accumulator {
                         } else {
                             idents_to_strings(&fk.columns)
                         };
-                        self.push_fk(&key, from_cols, fk);
+                        let (line, column) =
+                            first_known(location_from_span(opt.span()), (stmt_line, stmt_column));
+                        self.push_fk(&key, from_cols, fk, source_file, line, column);
                     }
                     _ => {}
                 }
@@ -115,7 +135,11 @@ impl Accumulator {
                 }
                 TableConstraint::ForeignKey(fk) => {
                     let from_cols = idents_to_strings(&fk.columns);
-                    self.push_fk(&key, from_cols, fk);
+                    let (line, column) = first_known(
+                        location_from_span(constraint.span()),
+                        (stmt_line, stmt_column),
+                    );
+                    self.push_fk(&key, from_cols, fk, source_file, line, column);
                 }
                 _ => {}
             }
@@ -131,7 +155,13 @@ impl Accumulator {
         self.insert_table(key, table);
     }
 
-    fn ingest_alter_table(&mut self, at: AlterTable) {
+    fn ingest_alter_table(
+        &mut self,
+        at: AlterTable,
+        source_file: &str,
+        stmt_line: Option<usize>,
+        stmt_column: Option<usize>,
+    ) {
         let (schema, name) = split_object_name(&at.name);
         if name.is_empty() {
             return;
@@ -141,13 +171,25 @@ impl Accumulator {
             if let AlterTableOperation::AddConstraint { constraint, .. } = op {
                 if let TableConstraint::ForeignKey(fk) = constraint {
                     let from_cols = idents_to_strings(&fk.columns);
-                    self.push_fk(&key, from_cols, fk);
+                    let (line, column) = first_known(
+                        location_from_span(constraint.span()),
+                        (stmt_line, stmt_column),
+                    );
+                    self.push_fk(&key, from_cols, fk, source_file, line, column);
                 }
             }
         }
     }
 
-    fn push_fk(&mut self, from_key: &str, from_columns: Vec<String>, fk: &ForeignKeyConstraint) {
+    fn push_fk(
+        &mut self,
+        from_key: &str,
+        from_columns: Vec<String>,
+        fk: &ForeignKeyConstraint,
+        source_file: &str,
+        line: Option<usize>,
+        column: Option<usize>,
+    ) {
         let (fschema, fname) = split_object_name(&fk.foreign_table);
         if fname.is_empty() {
             return;
@@ -160,6 +202,9 @@ impl Accumulator {
             to_columns: idents_to_strings(&fk.referred_columns),
             on_delete: fk.on_delete.as_ref().map(|a| a.to_string()),
             on_update: fk.on_update.as_ref().map(|a| a.to_string()),
+            source_file: Some(source_file.to_string()),
+            line,
+            column,
         });
     }
 
@@ -167,10 +212,10 @@ impl Accumulator {
         if let Some(&existing) = self.index.get(&key) {
             // Keep the first definition but merge column metadata when a later
             // CREATE adds columns we hadn't seen (rare; usually a redefinition).
-            self.warnings.push(format!(
+            self.warnings.push(ParseWarning::new(format!(
                 "Duplicate table definition `{}` (keeping the first; later one in {} ignored)",
                 key, table.source_file
-            ));
+            )));
             let _ = existing;
             return;
         }
@@ -199,12 +244,15 @@ impl Accumulator {
             }
 
             if !self.index.contains_key(&fk.to_table) {
-                self.warnings.push(format!(
-                    "Foreign key `{}({})` references unknown table `{}` — edge skipped",
-                    fk.from_table,
-                    fk.from_columns.join(", "),
-                    fk.to_table
-                ));
+                self.warnings.push(
+                    ParseWarning::new(format!(
+                        "Foreign key `{}({})` references unknown table `{}` — edge skipped",
+                        fk.from_table,
+                        fk.from_columns.join(", "),
+                        fk.to_table
+                    ))
+                    .with_location(fk.source_file, fk.line, fk.column),
+                );
                 continue;
             }
 
@@ -285,9 +333,34 @@ impl Accumulator {
         SchemaModel {
             tables: self.tables,
             relationships,
-            warnings: self.warnings,
+            warnings: self.warnings.into_iter().map(|w| w.render()).collect(),
             dialect,
         }
+    }
+}
+
+fn location_from_span(span: Span) -> (Option<usize>, Option<usize>) {
+    let line = if span.start.line == 0 {
+        None
+    } else {
+        Some(span.start.line as usize)
+    };
+    let column = if span.start.column == 0 {
+        None
+    } else {
+        Some(span.start.column as usize)
+    };
+    (line, column)
+}
+
+fn first_known(
+    primary: (Option<usize>, Option<usize>),
+    fallback: (Option<usize>, Option<usize>),
+) -> (Option<usize>, Option<usize>) {
+    if primary.0.is_some() {
+        primary
+    } else {
+        fallback
     }
 }
 

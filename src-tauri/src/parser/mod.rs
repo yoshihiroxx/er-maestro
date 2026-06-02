@@ -14,19 +14,23 @@ pub fn parse_files(files: &[PathBuf]) -> SchemaModel {
     let mut labels: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for path in files {
+        let display = path.display().to_string();
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(e) => {
-                acc.warn(format!("Failed to read {}: {}", path.display(), e));
+                acc.warn(format!("Failed to read {}: {}", display, e));
                 continue;
             }
         };
         let res = dialect::best_effort_parse(&content, None);
         labels.insert(res.label.clone());
-        for w in res.warnings {
-            acc.warn(format!("{}: {}", path.display(), w));
+        for mut w in res.warnings {
+            if w.source_file.is_none() {
+                w.source_file = Some(display.clone());
+            }
+            acc.warn_raw(w);
         }
-        acc.ingest(res.statements, &path.to_string_lossy());
+        acc.ingest(res.statements, &display);
     }
 
     let dialect = if labels.is_empty() {
@@ -41,8 +45,11 @@ pub fn parse_files(files: &[PathBuf]) -> SchemaModel {
 pub fn parse_text(sql: &str, hint: Option<&str>) -> SchemaModel {
     let mut acc = Accumulator::new();
     let res = dialect::best_effort_parse(sql, hint);
-    for w in res.warnings {
-        acc.warn(w);
+    for mut w in res.warnings {
+        if w.source_file.is_none() {
+            w.source_file = Some("<input>".to_string());
+        }
+        acc.warn_raw(w);
     }
     acc.ingest(res.statements, "<input>");
     acc.finish(res.label)
@@ -305,5 +312,63 @@ mod tests {
         "#;
         let m = parse_text(sql, None);
         assert!(m.tables.iter().any(|t| t.id == "widgets"));
+    }
+
+    #[test]
+    fn skipped_statement_warning_carries_file_and_line() {
+        let sql = "\nCREATE TABLE good (id INT PRIMARY KEY);\n            THIS IS NOT SQL;\n";
+        let m = parse_text(sql, None);
+        assert!(m.tables.iter().any(|t| t.id == "good"));
+        let w = m
+            .warnings
+            .iter()
+            .find(|w| w.contains("Skipped"))
+            .expect("expected a skipped-statement warning");
+        assert!(w.contains("<input>"), "expected source label in: {w}");
+        assert!(
+            w.contains(":3:13)") || w.contains(":3)"),
+            "expected line 3 of <input> in: {w}"
+        );
+    }
+
+    #[test]
+    fn unknown_fk_target_warning_carries_line_number() {
+        let sql = "\n\nCREATE TABLE orders (\n  id INT PRIMARY KEY,\n  customer_id INT REFERENCES customers (id)\n);\n";
+        let m = parse_text(sql, None);
+        let w = m
+            .warnings
+            .iter()
+            .find(|w| w.contains("unknown table"))
+            .expect("expected an unknown-table warning");
+        assert!(w.contains("(at "), "warning should carry a location: {w}");
+        assert!(w.contains("<input>"), "warning should mention source: {w}");
+    }
+
+    #[test]
+    fn skipped_statement_warning_carries_source_file_in_parse_files() {
+        let dir = std::env::temp_dir().join(format!("er-maestro-pbi005-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("schema.sql");
+        std::fs::write(
+            &file,
+            "CREATE TABLE keep (id INT PRIMARY KEY);\nTHIS IS NOT SQL;\n",
+        )
+        .unwrap();
+
+        let m = parse_files(std::slice::from_ref(&file));
+        let display = file.display().to_string();
+        assert!(m.tables.iter().any(|t| t.id == "keep"));
+        let w = m
+            .warnings
+            .iter()
+            .find(|w| w.contains("Skipped"))
+            .expect("expected a skipped-statement warning");
+        assert!(
+            w.contains(&display),
+            "warning should mention the file path {display}: {w}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
