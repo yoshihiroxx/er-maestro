@@ -21,8 +21,9 @@ export type TableNode = Node<TableNodeData, "table">;
 /** Estimated node height; the CSS uses these exact row/header sizes so the
  *  rendered node matches what the layout engine was given (no measure pass). */
 export function nodeHeight(table: Table): number {
+  const visibleRows = table.kind === "view" ? table.columns.length : Math.max(1, table.columns.length);
   return (
-    HEADER_HEIGHT + Math.max(1, table.columns.length) * ROW_HEIGHT + COLUMNS_PADDING
+    HEADER_HEIGHT + visibleRows * ROW_HEIGHT + COLUMNS_PADDING
   );
 }
 
@@ -62,7 +63,12 @@ export function buildGraph(
         targetHandle: toCol ? `t-${toCol}` : undefined,
         type: "smoothstep",
         markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-        className: r.inferred ? "edge--inferred" : undefined,
+        className:
+          r.via === "view_dependency"
+            ? "edge--view-dependency"
+            : r.inferred
+              ? "edge--inferred"
+              : undefined,
         data: { relationship: r },
       };
     });

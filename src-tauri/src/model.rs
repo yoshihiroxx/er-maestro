@@ -9,6 +9,27 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Distinguishes regular tables from views in the schema graph.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export, export_to = "../../src/types/")]
+#[serde(rename_all = "lowercase")]
+pub enum TableKind {
+    #[default]
+    Table,
+    View,
+}
+
+/// Indicates how a relationship edge was derived.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export, export_to = "../../src/types/")]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipVia {
+    #[default]
+    ForeignKey,
+    Inferred,
+    ViewDependency,
+}
+
 /// The full parsed schema: every table plus the foreign-key relationships
 /// resolved between them, along with any non-fatal warnings collected while
 /// parsing (unparseable statements, foreign keys pointing at unknown tables).
@@ -33,6 +54,9 @@ pub struct Table {
     pub columns: Vec<Column>,
     /// Absolute path of the `.sql` file this table was defined in.
     pub source_file: String,
+    /// Whether this entry is a regular table or a view.
+    #[serde(default)]
+    pub kind: TableKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -60,6 +84,9 @@ pub struct Relationship {
     pub to_columns: Vec<String>,
     pub on_delete: Option<String>,
     pub on_update: Option<String>,
+    /// How this relationship was derived.
+    #[serde(default)]
+    pub via: RelationshipVia,
     /// True when the edge was inferred from naming conventions
     /// (`<name>_id` -> `<names>`/`<name>.PK`) rather than declared via
     /// `FOREIGN KEY` / `REFERENCES`.

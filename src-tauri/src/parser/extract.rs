@@ -6,13 +6,16 @@
 use std::collections::{HashMap, HashSet};
 
 use sqlparser::ast::{
-    AlterTable, AlterTableOperation, CreateTable, Expr, ForeignKeyConstraint, Ident, IndexColumn,
-    ObjectName, Spanned, Statement, TableConstraint,
+    AlterTable, AlterTableOperation, CreateTable, CreateView, Expr, ForeignKeyConstraint, Ident,
+    IndexColumn, ObjectName, Query, SetExpr, Spanned, Statement, TableConstraint, TableFactor,
+    TableWithJoins,
 };
 use sqlparser::tokenizer::Span;
 
 use super::dialect::ParseWarning;
-use crate::model::{table_key, Column, Relationship, SchemaModel, Table};
+use crate::model::{
+    table_key, Column, Relationship, RelationshipVia, SchemaModel, Table, TableKind,
+};
 
 /// Accumulates tables and pending foreign keys across many files/statements,
 /// then resolves them into a [`SchemaModel`] in [`Accumulator::finish`].
@@ -22,6 +25,8 @@ pub struct Accumulator {
     /// normalized table key -> index into `tables`
     index: HashMap<String, usize>,
     pending: Vec<PendingFk>,
+    /// View dependency edges resolved after all statements are ingested.
+    pending_view_deps: Vec<PendingViewDep>,
     warnings: Vec<ParseWarning>,
 }
 
@@ -32,6 +37,14 @@ struct PendingFk {
     to_columns: Vec<String>,
     on_delete: Option<String>,
     on_update: Option<String>,
+    source_file: Option<String>,
+    line: Option<usize>,
+    column: Option<usize>,
+}
+
+struct PendingViewDep {
+    view_key: String,
+    dep_table: String,
     source_file: Option<String>,
     line: Option<usize>,
     column: Option<usize>,
@@ -59,6 +72,7 @@ impl Accumulator {
                     self.ingest_create_table(ct, source_file, line, column)
                 }
                 Statement::AlterTable(at) => self.ingest_alter_table(at, source_file, line, column),
+                Statement::CreateView(cv) => self.ingest_create_view(cv, source_file, line, column),
                 _ => {}
             }
         }
@@ -151,6 +165,7 @@ impl Accumulator {
             schema,
             columns,
             source_file: source_file.to_string(),
+            kind: TableKind::Table,
         };
         self.insert_table(key, table);
     }
@@ -178,6 +193,42 @@ impl Accumulator {
                     self.push_fk(&key, from_cols, fk, source_file, line, column);
                 }
             }
+        }
+    }
+
+    fn ingest_create_view(
+        &mut self,
+        cv: CreateView,
+        source_file: &str,
+        stmt_line: Option<usize>,
+        stmt_column: Option<usize>,
+    ) {
+        let (schema, name) = split_object_name(&cv.name);
+        if name.is_empty() {
+            return;
+        }
+        let view_key = table_key(schema.as_deref(), &name);
+
+        let view_table = Table {
+            id: view_key.clone(),
+            name,
+            schema,
+            columns: Vec::new(),
+            source_file: source_file.to_string(),
+            kind: TableKind::View,
+        };
+        self.insert_table(view_key.clone(), view_table);
+
+        let mut dep_tables = Vec::new();
+        collect_query_tables(&cv.query, &HashSet::new(), &mut dep_tables);
+        for dep_table in dep_tables {
+            self.pending_view_deps.push(PendingViewDep {
+                view_key: view_key.clone(),
+                dep_table,
+                source_file: Some(source_file.to_string()),
+                line: stmt_line,
+                column: stmt_column,
+            });
         }
     }
 
@@ -226,6 +277,7 @@ impl Accumulator {
     /// Resolve pending foreign keys into edges and emit the final model.
     pub fn finish(mut self, dialect: String) -> SchemaModel {
         let pending = std::mem::take(&mut self.pending);
+        let pending_view_deps = std::mem::take(&mut self.pending_view_deps);
         let mut relationships: Vec<Relationship> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
 
@@ -275,6 +327,37 @@ impl Accumulator {
                 to_columns: fk.to_columns,
                 on_delete: fk.on_delete,
                 on_update: fk.on_update,
+                via: RelationshipVia::ForeignKey,
+                inferred: false,
+            });
+        }
+
+        for vd in pending_view_deps {
+            if !self.index.contains_key(&vd.dep_table) {
+                self.warnings.push(
+                    ParseWarning::new(format!(
+                        "View `{}` references unknown table `{}` — dependency edge skipped",
+                        vd.view_key, vd.dep_table
+                    ))
+                    .with_location(vd.source_file, vd.line, vd.column),
+                );
+                continue;
+            }
+
+            let id = format!("{}->{}::view_dependency", vd.view_key, vd.dep_table);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+
+            relationships.push(Relationship {
+                id,
+                from_table: vd.view_key,
+                from_columns: Vec::new(),
+                to_table: vd.dep_table,
+                to_columns: Vec::new(),
+                on_delete: None,
+                on_update: None,
+                via: RelationshipVia::ViewDependency,
                 inferred: false,
             });
         }
@@ -325,6 +408,7 @@ impl Accumulator {
                     to_columns: to_cols,
                     on_delete: None,
                     on_update: None,
+                    via: RelationshipVia::Inferred,
                     inferred: true,
                 });
             }
@@ -431,5 +515,65 @@ fn mark_column(columns: &mut [Column], name: &str, f: impl Fn(&mut Column)) {
         if c.name.eq_ignore_ascii_case(name) {
             f(c);
         }
+    }
+}
+
+/// Walk a Query AST and collect referenced base table names, excluding CTEs.
+fn collect_query_tables(query: &Query, cte_names: &HashSet<String>, out: &mut Vec<String>) {
+    let mut local_cte_names = cte_names.clone();
+    if let Some(ref with) = query.with {
+        for cte in &with.cte_tables {
+            local_cte_names.insert(cte.alias.name.value.to_lowercase());
+        }
+        for cte in &with.cte_tables {
+            collect_query_tables(&cte.query, &local_cte_names, out);
+        }
+    }
+    collect_set_expr_tables(&query.body, &local_cte_names, out);
+}
+
+fn collect_set_expr_tables(expr: &SetExpr, cte_names: &HashSet<String>, out: &mut Vec<String>) {
+    match expr {
+        SetExpr::Select(select) => {
+            for table_with_joins in &select.from {
+                collect_table_with_joins(table_with_joins, cte_names, out);
+            }
+        }
+        SetExpr::Query(query) => collect_query_tables(query, cte_names, out),
+        SetExpr::SetOperation { left, right, .. } => {
+            collect_set_expr_tables(left, cte_names, out);
+            collect_set_expr_tables(right, cte_names, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_table_with_joins(
+    table_with_joins: &TableWithJoins,
+    cte_names: &HashSet<String>,
+    out: &mut Vec<String>,
+) {
+    collect_table_factor(&table_with_joins.relation, cte_names, out);
+    for join in &table_with_joins.joins {
+        collect_table_factor(&join.relation, cte_names, out);
+    }
+}
+
+fn collect_table_factor(factor: &TableFactor, cte_names: &HashSet<String>, out: &mut Vec<String>) {
+    match factor {
+        TableFactor::Table { name, .. } => {
+            let (schema, table_name) = split_object_name(name);
+            if table_name.is_empty() {
+                return;
+            }
+            let key = table_key(schema.as_deref(), &table_name);
+            if !cte_names.contains(&key) {
+                out.push(key);
+            }
+        }
+        TableFactor::Derived { subquery, .. } => {
+            collect_query_tables(subquery, cte_names, out);
+        }
+        _ => {}
     }
 }

@@ -9,10 +9,23 @@ import {
 function TableNodeComponent({ data }: NodeProps) {
   const { table, state } = data as TableNodeData;
 
+  const classes = [
+    "table-node",
+    `table-node--${state}`,
+    table.kind === "view" ? "table-node--view" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={`table-node table-node--${state}`}>
+    <div className={classes}>
       <div className="table-node__header" style={{ height: HEADER_HEIGHT }}>
         <span className="table-node__name">{table.name}</span>
+        {table.kind === "view" ? (
+          <span className="badge badge--view" title="ビュー">
+            VIEW
+          </span>
+        ) : null}
         {table.schema ? (
           <span className="table-node__schema">{table.schema}</span>
         ) : null}

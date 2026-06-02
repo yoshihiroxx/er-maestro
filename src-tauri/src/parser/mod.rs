@@ -58,6 +58,7 @@ pub fn parse_text(sql: &str, hint: Option<&str>) -> SchemaModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{RelationshipVia, TableKind};
 
     fn table_ids(m: &SchemaModel) -> Vec<String> {
         let mut v: Vec<String> = m.tables.iter().map(|t| t.id.clone()).collect();
@@ -300,6 +301,54 @@ mod tests {
         let inferred: Vec<_> = m.relationships.iter().filter(|r| r.inferred).collect();
         assert_eq!(inferred.len(), 1);
         assert_eq!(inferred[0].to_table, "public.users");
+    }
+
+    #[test]
+    fn create_view_adds_view_node_and_dependency_edges() {
+        let sql = r#"
+            CREATE TABLE users (id INT PRIMARY KEY);
+            CREATE TABLE orders (id INT PRIMARY KEY, user_id INT REFERENCES users (id));
+            CREATE VIEW user_orders AS
+                SELECT u.id, o.id AS order_id
+                FROM users u
+                JOIN orders o ON o.user_id = u.id;
+        "#;
+        let m = parse_text(sql, None);
+        let view = m.tables.iter().find(|t| t.id == "user_orders").unwrap();
+        assert_eq!(view.kind, TableKind::View);
+
+        let view_edges: Vec<_> = m
+            .relationships
+            .iter()
+            .filter(|r| r.via == RelationshipVia::ViewDependency)
+            .collect();
+        assert_eq!(view_edges.len(), 2);
+        assert!(view_edges.iter().all(|r| !r.inferred));
+        assert!(view_edges
+            .iter()
+            .any(|r| r.from_table == "user_orders" && r.to_table == "users"));
+        assert!(view_edges
+            .iter()
+            .any(|r| r.from_table == "user_orders" && r.to_table == "orders"));
+    }
+
+    #[test]
+    fn unknown_view_dependency_warning_carries_location() {
+        let sql = "\nCREATE VIEW missing_orders AS SELECT * FROM orders;\n";
+        let m = parse_text(sql, None);
+        assert!(m.tables.iter().any(|t| t.id == "missing_orders"));
+        assert_eq!(m.relationships.len(), 0);
+        let w = m
+            .warnings
+            .iter()
+            .find(|w| w.contains("unknown table"))
+            .expect("expected an unknown view dependency warning");
+        assert!(
+            w.contains("View `missing_orders`"),
+            "warning should mention view: {w}"
+        );
+        assert!(w.contains("(at "), "warning should carry a location: {w}");
+        assert!(w.contains("<input>"), "warning should mention source: {w}");
     }
 
     #[test]

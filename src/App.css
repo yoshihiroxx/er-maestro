@@ -309,6 +309,9 @@ input[type="search"] {
   border-bottom: 1px solid var(--border);
   font-weight: 700;
 }
+.table-node--view .table-node__header {
+  background: #ecfdf3;
+}
 .table-node__schema {
   font-size: 10px;
   color: var(--muted);
@@ -360,6 +363,10 @@ input[type="search"] {
   background: #ede9fe;
   color: var(--fk);
 }
+.badge--view {
+  background: #d1fae5;
+  color: #047857;
+}
 .badge--dialect {
   background: var(--accent-soft);
   color: var(--accent);
@@ -400,6 +407,10 @@ input[type="search"] {
 .react-flow__edge.edge--inferred .react-flow__edge-path {
   stroke-dasharray: 6 3;
   opacity: 0.7;
+}
+.react-flow__edge.edge--view-dependency .react-flow__edge-path {
+  stroke: #047857;
+  stroke-dasharray: 2 4;
 }
 
 /* ---------- Modal ---------- */

@@ -5,3 +5,5 @@ export type { SchemaModel } from "./SchemaModel";
 export type { Table } from "./Table";
 export type { Column } from "./Column";
 export type { Relationship } from "./Relationship";
+export type { TableKind } from "./TableKind";
+export type { RelationshipVia } from "./RelationshipVia";
