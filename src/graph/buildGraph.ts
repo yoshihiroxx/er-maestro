@@ -37,6 +37,8 @@ export type BuildGraphOptions = {
   includeInferred?: boolean;
 };
 
+const DEFAULT_EDGE_TYPE = "smoothstep";
+
 /** Convert a parsed schema into React Flow nodes + edges (unpositioned). */
 export function buildGraph(
   schema: SchemaModel,
@@ -72,7 +74,7 @@ export function buildGraph(
         target: r.to_table,
         sourceHandle: fromCol ? `s-${fromCol}` : undefined,
         targetHandle: toCol ? `t-${toCol}` : undefined,
-        type: "smoothstep",
+        type: DEFAULT_EDGE_TYPE,
         markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
         className:
           r.via === "view_dependency"

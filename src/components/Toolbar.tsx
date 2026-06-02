@@ -1,10 +1,15 @@
 import { pickDirectory, pickSqlFiles } from "../api/commands";
-import { useSchemaStore, type LayoutKind } from "../store/schemaStore";
+import { useSchemaStore, type EdgeKind, type LayoutKind } from "../store/schemaStore";
 
 const LAYOUTS: { value: LayoutKind; label: string }[] = [
   { value: "dagre-lr", label: "横 (dagre)" },
   { value: "dagre-tb", label: "縦 (dagre)" },
   { value: "elk", label: "ELK 直交" },
+];
+
+const EDGE_KINDS: { value: EdgeKind; label: string }[] = [
+  { value: "smoothstep", label: "直交" },
+  { value: "simplebezier", label: "曲線" },
 ];
 
 export function Toolbar() {
@@ -14,11 +19,13 @@ export function Toolbar() {
   const focusMode = useSchemaStore((s) => s.focusMode);
   const focusDepth = useSchemaStore((s) => s.focusDepth);
   const layoutKind = useSchemaStore((s) => s.layoutKind);
+  const edgeKind = useSchemaStore((s) => s.edgeKind);
   const inferenceEnabled = useSchemaStore((s) => s.inferenceEnabled);
   const loadFromPaths = useSchemaStore((s) => s.loadFromPaths);
   const setFocusMode = useSchemaStore((s) => s.setFocusMode);
   const setFocusDepth = useSchemaStore((s) => s.setFocusDepth);
   const setLayoutKind = useSchemaStore((s) => s.setLayoutKind);
+  const setEdgeKind = useSchemaStore((s) => s.setEdgeKind);
   const setInferenceEnabled = useSchemaStore((s) => s.setInferenceEnabled);
   const clearSelection = useSchemaStore((s) => s.clearSelection);
   const openSqlPaste = useSchemaStore((s) => s.openSqlPaste);
@@ -61,6 +68,17 @@ export function Toolbar() {
               {LAYOUTS.map((l) => (
                 <option key={l.value} value={l.value}>
                   {l.label}
+                </option>
+              ))}
+            </select>
+            <label className="toolbar__label">線</label>
+            <select
+              value={edgeKind}
+              onChange={(e) => setEdgeKind(e.currentTarget.value as EdgeKind)}
+            >
+              {EDGE_KINDS.map((edge) => (
+                <option key={edge.value} value={edge.value}>
+                  {edge.label}
                 </option>
               ))}
             </select>

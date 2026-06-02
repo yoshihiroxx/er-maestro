@@ -11,10 +11,12 @@ import {
 } from "../api/recentStore";
 
 export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
+export type EdgeKind = "smoothstep" | "simplebezier";
 export type Status = "idle" | "loading" | "error";
 
 const INFERENCE_STORAGE_KEY = "er-maestro:inferenceEnabled";
 const AUTO_FIT_ON_SCOPE_STORAGE_KEY = "er-maestro:autoFitOnScope";
+const EDGE_KIND_STORAGE_KEY = "er-maestro:edgeKind";
 
 function readInferencePref(): boolean {
   if (typeof window === "undefined") return true;
@@ -56,6 +58,25 @@ function writeAutoFitOnScopePref(on: boolean): void {
   }
 }
 
+function readEdgeKindPref(): EdgeKind {
+  if (typeof window === "undefined") return "smoothstep";
+  try {
+    const raw = window.localStorage.getItem(EDGE_KIND_STORAGE_KEY);
+    return raw === "simplebezier" ? "simplebezier" : "smoothstep";
+  } catch {
+    return "smoothstep";
+  }
+}
+
+function writeEdgeKindPref(kind: EdgeKind): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(EDGE_KIND_STORAGE_KEY, kind);
+  } catch {
+    // Storage quota / private mode - ignore; runtime state still works.
+  }
+}
+
 export type ColumnRef = { tableId: string; columnName: string };
 
 interface SchemaState {
@@ -75,6 +96,7 @@ interface SchemaState {
   /** BFS depth used to compute the "related" set around the selection. */
   focusDepth: number;
   layoutKind: LayoutKind;
+  edgeKind: EdgeKind;
   searchQuery: string;
   inferenceEnabled: boolean;
   /**
@@ -102,6 +124,7 @@ interface SchemaState {
   setFocusMode: (on: boolean) => void;
   setFocusDepth: (depth: number) => void;
   setLayoutKind: (kind: LayoutKind) => void;
+  setEdgeKind: (kind: EdgeKind) => void;
   setSearchQuery: (query: string) => void;
   setInferenceEnabled: (on: boolean) => void;
   setAutoFitOnScope: (on: boolean) => void;
@@ -134,6 +157,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   focusMode: true,
   focusDepth: 1,
   layoutKind: "dagre-lr",
+  edgeKind: readEdgeKindPref(),
   searchQuery: "",
   inferenceEnabled: readInferencePref(),
   autoFitOnScope: readAutoFitOnScopePref(),
@@ -205,6 +229,10 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   setFocusMode: (on) => set({ focusMode: on }),
   setFocusDepth: (depth) => set({ focusDepth: depth }),
   setLayoutKind: (kind) => set({ layoutKind: kind }),
+  setEdgeKind: (kind) => {
+    writeEdgeKindPref(kind);
+    set({ edgeKind: kind });
+  },
   setSearchQuery: (query) => set({ searchQuery: query }),
   setInferenceEnabled: (on) => {
     writeInferencePref(on);

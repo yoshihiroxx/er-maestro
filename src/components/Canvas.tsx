@@ -35,6 +35,7 @@ export function Canvas() {
   const focusMode = useSchemaStore((s) => s.focusMode);
   const focusDepth = useSchemaStore((s) => s.focusDepth);
   const layoutKind = useSchemaStore((s) => s.layoutKind);
+  const edgeKind = useSchemaStore((s) => s.edgeKind);
   const inferenceEnabled = useSchemaStore((s) => s.inferenceEnabled);
   const autoFitOnScope = useSchemaStore((s) => s.autoFitOnScope);
   const selectTable = useSchemaStore((s) => s.selectTable);
@@ -45,11 +46,15 @@ export function Canvas() {
   const { fitView, setCenter } = useReactFlow();
 
   const base = useMemo(
-    () =>
-      schema
-        ? buildGraph(schema, { includeInferred: inferenceEnabled })
-        : { nodes: [], edges: [] },
-    [schema, inferenceEnabled],
+    () => {
+      if (!schema) return { nodes: [], edges: [] };
+      const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
+      return {
+        nodes: graph.nodes,
+        edges: graph.edges.map((edge) => ({ ...edge, type: edgeKind })),
+      };
+    },
+    [schema, inferenceEnabled, edgeKind],
   );
   const adjacency = useMemo(
     () =>
