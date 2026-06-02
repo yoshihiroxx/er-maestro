@@ -21,7 +21,8 @@
     "@xyflow/react": "^12",
     "zustand": "^5",
     "@dagrejs/dagre": "^1",
-    "elkjs": "^0.9"
+    "elkjs": "^0.9",
+    "html-to-image": "^1.11.13"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",

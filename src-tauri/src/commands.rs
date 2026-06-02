@@ -1,5 +1,7 @@
 //! Tauri commands exposed to the frontend.
 
+use std::path::PathBuf;
+
 use crate::fs_scan::collect_sql_files;
 use crate::model::SchemaModel;
 use crate::parser;
@@ -19,4 +21,19 @@ pub fn parse_schema(paths: Vec<String>) -> Result<SchemaModel, String> {
 #[tauri::command]
 pub fn parse_sql_text(sql: String, dialect: Option<String>) -> Result<SchemaModel, String> {
     Ok(parser::parse_text(&sql, dialect.as_deref()))
+}
+
+/// Write an exported diagram (PNG bytes or SVG text) to `path`.
+#[tauri::command]
+pub fn save_export_file(path: String, contents: Vec<u8>) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            return Err(format!(
+                "Parent directory does not exist: {}",
+                parent.display()
+            ));
+        }
+    }
+    std::fs::write(&target, &contents).map_err(|e| format!("Failed to write {}: {e}", path))
 }

@@ -543,6 +543,35 @@ input[type="search"] {
   color: var(--muted);
 }
 
+/* ---------- Export panel (Canvas overlay) ---------- */
+.export-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.export-panel button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.export-panel button:disabled {
+  background: var(--muted);
+  cursor: progress;
+}
+.export-panel__error {
+  color: #b91c1c;
+  font-size: 11px;
+  max-width: 220px;
+  word-break: break-word;
+}
+
 /* ---------- Modal ---------- */
 .modal-backdrop {
   position: fixed;

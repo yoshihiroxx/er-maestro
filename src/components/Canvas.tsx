@@ -18,6 +18,7 @@ import { useSchemaStore } from "../store/schemaStore";
 import { buildGraph, type NodeState, type TableNode as TNode } from "../graph/buildGraph";
 import { buildAdjacency, relatedTables } from "../graph/neighbors";
 import { runLayout } from "../graph/layout";
+import { ExportPanel } from "./ExportPanel";
 import { TableNode } from "./TableNode";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
 
@@ -278,6 +279,7 @@ export function Canvas() {
           </svg>
         </ControlButton>
       </Controls>
+      <ExportPanel />
       <MiniMap pannable zoomable nodeStrokeWidth={2} />
       <KeyboardShortcuts />
     </ReactFlow>

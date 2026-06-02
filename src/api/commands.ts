@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type { SchemaModel } from "../types";
 
 /** Parse a list of file/directory paths into one merged schema (Rust side). */
@@ -33,4 +33,23 @@ export async function pickDirectory(): Promise<string[] | null> {
   const selected = await open({ directory: true });
   if (selected == null) return null;
   return [selected as string];
+}
+
+export async function pickExportSavePath(
+  defaultName: string,
+  ext: "png" | "svg",
+): Promise<string | null> {
+  const label = ext === "png" ? "PNG image" : "SVG image";
+  const selected = await save({
+    defaultPath: defaultName,
+    filters: [{ name: label, extensions: [ext] }],
+  });
+  return selected ?? null;
+}
+
+export async function saveExportFile(
+  path: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  await invoke("save_export_file", { path, contents: Array.from(bytes) });
 }

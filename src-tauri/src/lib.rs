@@ -11,6 +11,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::parse_schema,
             commands::parse_sql_text,
+            commands::save_export_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
