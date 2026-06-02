@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import type { SchemaModel } from "../types";
 import { parseSchema, parseSqlText } from "../api/commands";
+import {
+  clearRecentEntries,
+  getRecentEntries,
+  recordRecentOpen,
+  removeRecentEntry,
+  type RecentEntry,
+  type RecentSourceKind,
+} from "../api/recentStore";
 
 export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
 export type Status = "idle" | "loading" | "error";
@@ -49,8 +57,10 @@ interface SchemaState {
    */
   jumpToken: number;
   sqlPasteOpen: boolean;
+  /** Recently opened sources, newest first (persisted across restarts). */
+  recent: RecentEntry[];
 
-  loadFromPaths: (paths: string[]) => Promise<void>;
+  loadFromPaths: (paths: string[], kind?: RecentSourceKind) => Promise<void>;
   loadFromText: (sql: string, dialect?: string) => Promise<void>;
   setSchema: (schema: SchemaModel, label?: string) => void;
   selectTable: (id: string | null) => void;
@@ -65,6 +75,10 @@ interface SchemaState {
   jumpToTable: (id: string) => void;
   openSqlPaste: () => void;
   closeSqlPaste: () => void;
+  /** Load the persisted history into state (call once on startup). */
+  refreshRecent: () => Promise<void>;
+  removeRecent: (id: string) => Promise<void>;
+  clearRecent: () => Promise<void>;
 }
 
 export const useSchemaStore = create<SchemaState>((set) => ({
@@ -81,8 +95,9 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   inferenceEnabled: readInferencePref(),
   jumpToken: 0,
   sqlPasteOpen: false,
+  recent: [],
 
-  loadFromPaths: async (paths) => {
+  loadFromPaths: async (paths, kind = "files") => {
     set({ status: "loading", error: null });
     try {
       const schema = await parseSchema(paths);
@@ -95,6 +110,8 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         sourceLabel:
           paths.length === 1 ? paths[0] : `${paths.length} 件のパス`,
       });
+      const recent = await recordRecentOpen(paths, kind);
+      set({ recent });
     } catch (e) {
       set({ status: "error", error: String(e) });
     }
@@ -151,4 +168,16 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     }),
   openSqlPaste: () => set({ sqlPasteOpen: true }),
   closeSqlPaste: () => set({ sqlPasteOpen: false }),
+  refreshRecent: async () => {
+    const recent = await getRecentEntries();
+    set({ recent });
+  },
+  removeRecent: async (id) => {
+    const recent = await removeRecentEntry(id);
+    set({ recent });
+  },
+  clearRecent: async () => {
+    await clearRecentEntries();
+    set({ recent: [] });
+  },
 }));

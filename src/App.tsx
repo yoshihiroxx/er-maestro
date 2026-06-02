@@ -14,7 +14,12 @@ function App() {
   const schema = useSchemaStore((s) => s.schema);
   const status = useSchemaStore((s) => s.status);
   const loadFromPaths = useSchemaStore((s) => s.loadFromPaths);
+  const refreshRecent = useSchemaStore((s) => s.refreshRecent);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  useEffect(() => {
+    refreshRecent();
+  }, [refreshRecent]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -29,7 +34,7 @@ function App() {
           setIsDragOver(false);
           const paths = event.payload.paths;
           if (paths.length > 0) {
-            loadFromPaths(paths);
+            loadFromPaths(paths, "files");
           }
         }
       })

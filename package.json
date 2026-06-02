@@ -17,6 +17,7 @@
     "react-dom": "^19.1.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-store": "^2.4.3",
     "@xyflow/react": "^12",
     "zustand": "^5",
     "@dagrejs/dagre": "^1",

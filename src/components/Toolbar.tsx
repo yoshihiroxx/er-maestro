@@ -27,11 +27,11 @@ export function Toolbar() {
 
   const openFiles = async () => {
     const paths = await pickSqlFiles();
-    if (paths) await loadFromPaths(paths);
+    if (paths) await loadFromPaths(paths, "files");
   };
   const openFolder = async () => {
     const paths = await pickDirectory();
-    if (paths) await loadFromPaths(paths);
+    if (paths) await loadFromPaths(paths, "directory");
   };
 
   return (
