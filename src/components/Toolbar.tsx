@@ -14,10 +14,12 @@ export function Toolbar() {
   const focusMode = useSchemaStore((s) => s.focusMode);
   const focusDepth = useSchemaStore((s) => s.focusDepth);
   const layoutKind = useSchemaStore((s) => s.layoutKind);
+  const inferenceEnabled = useSchemaStore((s) => s.inferenceEnabled);
   const loadFromPaths = useSchemaStore((s) => s.loadFromPaths);
   const setFocusMode = useSchemaStore((s) => s.setFocusMode);
   const setFocusDepth = useSchemaStore((s) => s.setFocusDepth);
   const setLayoutKind = useSchemaStore((s) => s.setLayoutKind);
+  const setInferenceEnabled = useSchemaStore((s) => s.setInferenceEnabled);
   const clearSelection = useSchemaStore((s) => s.clearSelection);
   const openSqlPaste = useSchemaStore((s) => s.openSqlPaste);
 
@@ -72,6 +74,14 @@ export function Toolbar() {
                 onChange={(e) => setFocusMode(e.currentTarget.checked)}
               />
               関連のみ表示
+            </label>
+            <label className="toolbar__check">
+              <input
+                type="checkbox"
+                checked={inferenceEnabled}
+                onChange={(e) => setInferenceEnabled(e.currentTarget.checked)}
+              />
+              推論FK表示
             </label>
             <label className="toolbar__label">深さ</label>
             <select

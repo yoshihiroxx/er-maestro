@@ -30,6 +30,7 @@ export function Canvas() {
   const focusMode = useSchemaStore((s) => s.focusMode);
   const focusDepth = useSchemaStore((s) => s.focusDepth);
   const layoutKind = useSchemaStore((s) => s.layoutKind);
+  const inferenceEnabled = useSchemaStore((s) => s.inferenceEnabled);
   const selectTable = useSchemaStore((s) => s.selectTable);
   const clearSelection = useSchemaStore((s) => s.clearSelection);
   const jumpToken = useSchemaStore((s) => s.jumpToken);
@@ -37,12 +38,20 @@ export function Canvas() {
   const { fitView, setCenter } = useReactFlow();
 
   const base = useMemo(
-    () => (schema ? buildGraph(schema) : { nodes: [], edges: [] }),
-    [schema],
+    () =>
+      schema
+        ? buildGraph(schema, { includeInferred: inferenceEnabled })
+        : { nodes: [], edges: [] },
+    [schema, inferenceEnabled],
   );
   const adjacency = useMemo(
-    () => buildAdjacency(schema?.relationships ?? []),
-    [schema],
+    () =>
+      buildAdjacency(
+        (schema?.relationships ?? []).filter(
+          (r) => inferenceEnabled || !r.inferred,
+        ),
+      ),
+    [schema, inferenceEnabled],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TNode>([]);
@@ -95,11 +104,14 @@ export function Canvas() {
   const displayEdges = useMemo<Edge[]>(() => {
     return edges.map((e) => {
       let hidden = false;
-      let className: string | undefined;
+      const baseClassName = e.className;
+      let className = baseClassName;
       if (related) {
         const active = related.has(e.source) && related.has(e.target);
         hidden = focusMode ? !active : false;
-        className = active ? "edge--active" : "edge--dim";
+        className = [baseClassName, active ? "edge--active" : "edge--dim"]
+          .filter(Boolean)
+          .join(" ");
       }
       if ((e.hidden ?? false) === hidden && e.className === className) return e;
       return { ...e, hidden, className };

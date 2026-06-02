@@ -60,6 +60,11 @@ pub struct Relationship {
     pub to_columns: Vec<String>,
     pub on_delete: Option<String>,
     pub on_update: Option<String>,
+    /// True when the edge was inferred from naming conventions
+    /// (`<name>_id` -> `<names>`/`<name>.PK`) rather than declared via
+    /// `FOREIGN KEY` / `REFERENCES`.
+    #[serde(default)]
+    pub inferred: bool,
 }
 
 /// Build the normalized lookup key for a table from an optional schema and a

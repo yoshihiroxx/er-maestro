@@ -82,7 +82,11 @@ mod tests {
         assert_eq!(rel.on_delete.as_deref(), Some("CASCADE"));
 
         let posts = m.tables.iter().find(|t| t.id == "posts").unwrap();
-        let author = posts.columns.iter().find(|c| c.name == "author_id").unwrap();
+        let author = posts
+            .columns
+            .iter()
+            .find(|c| c.name == "author_id")
+            .unwrap();
         assert!(author.is_foreign_key);
         assert!(!author.nullable);
         let id_col = posts.columns.iter().find(|c| c.name == "id").unwrap();
@@ -146,7 +150,13 @@ mod tests {
         assert_eq!(m.relationships[0].from_table, "b");
         assert_eq!(m.relationships[0].to_table, "a");
         let b = m.tables.iter().find(|t| t.id == "b").unwrap();
-        assert!(b.columns.iter().find(|c| c.name == "a_id").unwrap().is_foreign_key);
+        assert!(
+            b.columns
+                .iter()
+                .find(|c| c.name == "a_id")
+                .unwrap()
+                .is_foreign_key
+        );
     }
 
     #[test]
@@ -177,7 +187,14 @@ mod tests {
         assert!(m.warnings.iter().any(|w| w.contains("unknown table")));
         // The local column is still flagged as a foreign key.
         let orders = &m.tables[0];
-        assert!(orders.columns.iter().find(|c| c.name == "customer_id").unwrap().is_foreign_key);
+        assert!(
+            orders
+                .columns
+                .iter()
+                .find(|c| c.name == "customer_id")
+                .unwrap()
+                .is_foreign_key
+        );
     }
 
     #[test]
@@ -202,6 +219,80 @@ mod tests {
             .relationships
             .iter()
             .any(|r| r.from_table == "orders" && r.to_table == "users"));
+    }
+
+    #[test]
+    fn infers_relationship_from_naming_convention() {
+        let sql = r#"
+            CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);
+            CREATE TABLE posts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                title TEXT
+            );
+        "#;
+        let m = parse_text(sql, None);
+        assert_eq!(m.relationships.len(), 1);
+        let rel = &m.relationships[0];
+        assert!(rel.inferred, "edge should be marked as inferred");
+        assert_eq!(rel.from_table, "posts");
+        assert_eq!(rel.from_columns, vec!["user_id"]);
+        assert_eq!(rel.to_table, "users");
+        assert_eq!(rel.to_columns, vec!["id"]);
+
+        let posts = m.tables.iter().find(|t| t.id == "posts").unwrap();
+        let user_col = posts.columns.iter().find(|c| c.name == "user_id").unwrap();
+        assert!(!user_col.is_foreign_key);
+    }
+
+    #[test]
+    fn infers_relationship_singular_match() {
+        let sql = r#"
+            CREATE TABLE category (id INT PRIMARY KEY, label TEXT);
+            CREATE TABLE item (id INT PRIMARY KEY, category_id INT);
+        "#;
+        let m = parse_text(sql, None);
+        let inferred: Vec<_> = m.relationships.iter().filter(|r| r.inferred).collect();
+        assert_eq!(inferred.len(), 1);
+        assert_eq!(inferred[0].to_table, "category");
+    }
+
+    #[test]
+    fn inference_does_not_duplicate_explicit_fk() {
+        let sql = r#"
+            CREATE TABLE users (id SERIAL PRIMARY KEY);
+            CREATE TABLE posts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users (id)
+            );
+        "#;
+        let m = parse_text(sql, None);
+        assert_eq!(m.relationships.len(), 1);
+        assert!(!m.relationships[0].inferred);
+    }
+
+    #[test]
+    fn inference_skips_when_no_target_table() {
+        let sql = r#"
+            CREATE TABLE orders (
+                id INT PRIMARY KEY,
+                customer_id INT NOT NULL
+            );
+        "#;
+        let m = parse_text(sql, None);
+        assert_eq!(m.relationships.len(), 0);
+    }
+
+    #[test]
+    fn inference_respects_schema_prefix() {
+        let sql = r#"
+            CREATE TABLE public.users (id SERIAL PRIMARY KEY);
+            CREATE TABLE public.posts (id SERIAL PRIMARY KEY, user_id INT);
+        "#;
+        let m = parse_text(sql, None);
+        let inferred: Vec<_> = m.relationships.iter().filter(|r| r.inferred).collect();
+        assert_eq!(inferred.len(), 1);
+        assert_eq!(inferred[0].to_table, "public.users");
     }
 
     #[test]

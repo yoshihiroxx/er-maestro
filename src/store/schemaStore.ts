@@ -5,6 +5,28 @@ import { parseSchema, parseSqlText } from "../api/commands";
 export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
 export type Status = "idle" | "loading" | "error";
 
+const INFERENCE_STORAGE_KEY = "er-maestro:inferenceEnabled";
+
+function readInferencePref(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(INFERENCE_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function writeInferencePref(on: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(INFERENCE_STORAGE_KEY, String(on));
+  } catch {
+    // Storage quota / private mode - ignore; runtime state still works.
+  }
+}
+
 interface SchemaState {
   schema: SchemaModel | null;
   status: Status;
@@ -19,6 +41,7 @@ interface SchemaState {
   focusDepth: number;
   layoutKind: LayoutKind;
   searchQuery: string;
+  inferenceEnabled: boolean;
   /**
    * Bumped whenever the user explicitly asks to center the viewport on the
    * selected table (e.g. pressing Enter in the sidebar search). Canvas watches
@@ -35,6 +58,7 @@ interface SchemaState {
   setFocusDepth: (depth: number) => void;
   setLayoutKind: (kind: LayoutKind) => void;
   setSearchQuery: (query: string) => void;
+  setInferenceEnabled: (on: boolean) => void;
   clearSelection: () => void;
   reset: () => void;
   /** Select `id` and signal Canvas to center on it. */
@@ -54,6 +78,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   focusDepth: 1,
   layoutKind: "dagre-lr",
   searchQuery: "",
+  inferenceEnabled: readInferencePref(),
   jumpToken: 0,
   sqlPasteOpen: false,
 
@@ -108,6 +133,10 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   setFocusDepth: (depth) => set({ focusDepth: depth }),
   setLayoutKind: (kind) => set({ layoutKind: kind }),
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setInferenceEnabled: (on) => {
+    writeInferencePref(on);
+    set({ inferenceEnabled: on });
+  },
   clearSelection: () => set({ selectedTableId: null }),
   jumpToTable: (id) =>
     set((s) => ({ selectedTableId: id, jumpToken: s.jumpToken + 1 })),

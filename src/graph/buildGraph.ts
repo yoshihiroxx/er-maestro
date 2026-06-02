@@ -26,11 +26,20 @@ export function nodeHeight(table: Table): number {
   );
 }
 
+export type BuildGraphOptions = {
+  includeInferred?: boolean;
+};
+
 /** Convert a parsed schema into React Flow nodes + edges (unpositioned). */
-export function buildGraph(schema: SchemaModel): {
+export function buildGraph(
+  schema: SchemaModel,
+  options: BuildGraphOptions = {},
+): {
   nodes: TableNode[];
   edges: Edge[];
 } {
+  const { includeInferred = true } = options;
+
   const nodes: TableNode[] = schema.tables.map((table) => ({
     id: table.id,
     type: "table",
@@ -40,20 +49,23 @@ export function buildGraph(schema: SchemaModel): {
     data: { table, state: "normal" },
   }));
 
-  const edges: Edge[] = schema.relationships.map((r) => {
-    const fromCol = r.from_columns[0];
-    const toCol = r.to_columns[0];
-    return {
-      id: r.id,
-      source: r.from_table,
-      target: r.to_table,
-      sourceHandle: fromCol ? `s-${fromCol}` : undefined,
-      targetHandle: toCol ? `t-${toCol}` : undefined,
-      type: "smoothstep",
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-      data: { relationship: r },
-    };
-  });
+  const edges: Edge[] = schema.relationships
+    .filter((r) => includeInferred || !r.inferred)
+    .map((r) => {
+      const fromCol = r.from_columns[0];
+      const toCol = r.to_columns[0];
+      return {
+        id: r.id,
+        source: r.from_table,
+        target: r.to_table,
+        sourceHandle: fromCol ? `s-${fromCol}` : undefined,
+        targetHandle: toCol ? `t-${toCol}` : undefined,
+        type: "smoothstep",
+        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+        className: r.inferred ? "edge--inferred" : undefined,
+        data: { relationship: r },
+      };
+    });
 
   return { nodes, edges };
 }

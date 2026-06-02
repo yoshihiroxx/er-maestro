@@ -12,4 +12,10 @@ from_table: string, from_columns: Array<string>,
 /**
  * Parent side (the referenced table), normalized key.
  */
-to_table: string, to_columns: Array<string>, on_delete: string | null, on_update: string | null, };
+to_table: string, to_columns: Array<string>, on_delete: string | null, on_update: string | null, 
+/**
+ * True when the edge was inferred from naming conventions
+ * (`<name>_id` -> `<names>`/`<name>.PK`) rather than declared via
+ * `FOREIGN KEY` / `REFERENCES`.
+ */
+inferred: boolean, };

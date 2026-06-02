@@ -227,7 +227,59 @@ impl Accumulator {
                 to_columns: fk.to_columns,
                 on_delete: fk.on_delete,
                 on_update: fk.on_update,
+                inferred: false,
             });
+        }
+
+        let table_keys: HashSet<String> = self.tables.iter().map(|t| t.id.clone()).collect();
+        for ti in 0..self.tables.len() {
+            let from_key = self.tables[ti].id.clone();
+            let col_count = self.tables[ti].columns.len();
+            for ci in 0..col_count {
+                if self.tables[ti].columns[ci].is_foreign_key {
+                    continue;
+                }
+                let col_name = self.tables[ti].columns[ci].name.clone();
+                let lower = col_name.to_lowercase();
+                let Some(base) = lower.strip_suffix("_id") else {
+                    continue;
+                };
+                if base.is_empty() {
+                    continue;
+                }
+                let Some(target) = resolve_inferred_target(base, &table_keys, &from_key) else {
+                    continue;
+                };
+                if target == from_key {
+                    continue;
+                }
+                let to_pk = primary_key_of(&self.tables, &target);
+                let to_cols = if to_pk.is_empty() {
+                    vec!["id".to_string()]
+                } else {
+                    to_pk
+                };
+                let id = format!(
+                    "{}::{}->{}::{}",
+                    from_key,
+                    col_name,
+                    target,
+                    to_cols.join(",")
+                );
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+                relationships.push(Relationship {
+                    id,
+                    from_table: from_key.clone(),
+                    from_columns: vec![col_name],
+                    to_table: target,
+                    to_columns: to_cols,
+                    on_delete: None,
+                    on_update: None,
+                    inferred: true,
+                });
+            }
         }
 
         SchemaModel {
@@ -236,6 +288,41 @@ impl Accumulator {
             warnings: self.warnings,
             dialect,
         }
+    }
+}
+
+fn resolve_inferred_target(
+    base: &str,
+    table_keys: &HashSet<String>,
+    from_key: &str,
+) -> Option<String> {
+    let schema_prefix = from_key.rsplit_once('.').map(|(s, _)| s.to_string());
+    let bases = [base.to_string(), format!("{base}s"), format!("{base}es")];
+    if let Some(s) = &schema_prefix {
+        for b in &bases {
+            let candidate = format!("{s}.{b}");
+            if table_keys.contains(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    for b in &bases {
+        if table_keys.contains(b) {
+            return Some(b.clone());
+        }
+    }
+    None
+}
+
+fn primary_key_of(tables: &[Table], key: &str) -> Vec<String> {
+    if let Some(t) = tables.iter().find(|t| t.id == key) {
+        t.columns
+            .iter()
+            .filter(|c| c.is_primary_key)
+            .map(|c| c.name.clone())
+            .collect()
+    } else {
+        Vec::new()
     }
 }
 
@@ -253,7 +340,9 @@ fn idents_to_strings(idents: &[Ident]) -> Vec<String> {
 }
 
 fn index_column_names(cols: &[IndexColumn]) -> Vec<String> {
-    cols.iter().filter_map(|ic| expr_ident(&ic.column.expr)).collect()
+    cols.iter()
+        .filter_map(|ic| expr_ident(&ic.column.expr))
+        .collect()
 }
 
 fn expr_ident(e: &Expr) -> Option<String> {

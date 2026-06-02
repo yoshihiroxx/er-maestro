@@ -397,6 +397,10 @@ input[type="search"] {
 .react-flow__edge.edge--dim {
   opacity: 0.12;
 }
+.react-flow__edge.edge--inferred .react-flow__edge-path {
+  stroke-dasharray: 6 3;
+  opacity: 0.7;
+}
 
 /* ---------- Modal ---------- */
 .modal-backdrop {
