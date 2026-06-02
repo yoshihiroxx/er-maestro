@@ -6,6 +6,7 @@ import { Toolbar } from "./components/Toolbar";
 import { Sidebar } from "./components/Sidebar";
 import { Canvas } from "./components/Canvas";
 import { EmptyState } from "./components/EmptyState";
+import { SqlPasteModal } from "./components/SqlPasteModal";
 
 function App() {
   const schema = useSchemaStore((s) => s.schema);
@@ -28,6 +29,7 @@ function App() {
           )}
         </main>
       </div>
+      <SqlPasteModal />
     </div>
   );
 }

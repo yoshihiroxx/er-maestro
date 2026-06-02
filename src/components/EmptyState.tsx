@@ -5,6 +5,7 @@ export function EmptyState() {
   const status = useSchemaStore((s) => s.status);
   const error = useSchemaStore((s) => s.error);
   const loadFromPaths = useSchemaStore((s) => s.loadFromPaths);
+  const openSqlPaste = useSchemaStore((s) => s.openSqlPaste);
 
   const openFiles = async () => {
     const paths = await pickSqlFiles();
@@ -36,6 +37,9 @@ export function EmptyState() {
         </button>
         <button type="button" onClick={openFolder}>
           フォルダを開く
+        </button>
+        <button type="button" onClick={openSqlPaste}>
+          SQL を貼り付け
         </button>
       </div>
       {status === "error" && error ? (

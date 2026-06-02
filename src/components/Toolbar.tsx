@@ -19,6 +19,7 @@ export function Toolbar() {
   const setFocusDepth = useSchemaStore((s) => s.setFocusDepth);
   const setLayoutKind = useSchemaStore((s) => s.setLayoutKind);
   const clearSelection = useSchemaStore((s) => s.clearSelection);
+  const openSqlPaste = useSchemaStore((s) => s.openSqlPaste);
 
   const loading = status === "loading";
 
@@ -41,6 +42,9 @@ export function Toolbar() {
         </button>
         <button type="button" onClick={openFolder} disabled={loading}>
           フォルダを開く
+        </button>
+        <button type="button" onClick={openSqlPaste} disabled={loading}>
+          SQL を貼り付け
         </button>
       </div>
 

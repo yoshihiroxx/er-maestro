@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { SchemaModel } from "../types";
-import { parseSchema } from "../api/commands";
+import { parseSchema, parseSqlText } from "../api/commands";
 
 export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
 export type Status = "idle" | "loading" | "error";
@@ -25,8 +25,10 @@ interface SchemaState {
    * this counter to pan/zoom instead of just fitting all visible nodes.
    */
   jumpToken: number;
+  sqlPasteOpen: boolean;
 
   loadFromPaths: (paths: string[]) => Promise<void>;
+  loadFromText: (sql: string, dialect?: string) => Promise<void>;
   setSchema: (schema: SchemaModel, label?: string) => void;
   selectTable: (id: string | null) => void;
   setFocusMode: (on: boolean) => void;
@@ -37,6 +39,8 @@ interface SchemaState {
   reset: () => void;
   /** Select `id` and signal Canvas to center on it. */
   jumpToTable: (id: string) => void;
+  openSqlPaste: () => void;
+  closeSqlPaste: () => void;
 }
 
 export const useSchemaStore = create<SchemaState>((set) => ({
@@ -51,6 +55,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   layoutKind: "dagre-lr",
   searchQuery: "",
   jumpToken: 0,
+  sqlPasteOpen: false,
 
   loadFromPaths: async (paths) => {
     set({ status: "loading", error: null });
@@ -67,6 +72,25 @@ export const useSchemaStore = create<SchemaState>((set) => ({
       });
     } catch (e) {
       set({ status: "error", error: String(e) });
+    }
+  },
+
+  loadFromText: async (sql, dialect) => {
+    set({ status: "loading", error: null });
+    try {
+      const schema = await parseSqlText(sql, dialect);
+      set({
+        schema,
+        status: "idle",
+        error: null,
+        selectedTableId: null,
+        searchQuery: "",
+        sourceLabel: "テキスト入力",
+        sqlPasteOpen: false,
+      });
+    } catch (e) {
+      set({ status: "error", error: String(e) });
+      throw e;
     }
   },
 
@@ -96,4 +120,6 @@ export const useSchemaStore = create<SchemaState>((set) => ({
       sourceLabel: null,
       searchQuery: "",
     }),
+  openSqlPaste: () => set({ sqlPasteOpen: true }),
+  closeSqlPaste: () => set({ sqlPasteOpen: false }),
 }));
