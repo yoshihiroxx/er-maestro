@@ -20,38 +20,13 @@ GitHub Release (draft) に成果物を添付する。
   - `er-maestro_<version>_x64-setup.exe` (NSIS)
   - `er-maestro_<version>_x64_en-US.msi` (WiX)
 
-## 署名 / 公証 (任意)
+## 署名 / 公証
 
-下記 GitHub Secrets を repository / environment に設定すると tauri-action が自動で署名・
-公証する。未設定の場合は ad-hoc 署名の unsigned ビルドが生成される (起動は可能だが
-Gatekeeper/SmartScreen で警告)。
+署名は別 PBI / 別フェーズで対応する。当面は署名 env を渡さない unsigned 運用とする。
+証明書の準備が整った後、条件付き step または separate job として再導入する。
 
-### macOS
-
-| Secret 名                     | 用途                                                    |
-| ---------------------------- | ------------------------------------------------------- |
-| `APPLE_CERTIFICATE`           | Developer ID Application 証明書 (.p12) を base64 化したもの |
-| `APPLE_CERTIFICATE_PASSWORD`  | .p12 のパスワード                                       |
-| `APPLE_SIGNING_IDENTITY`      | 例: `Developer ID Application: Foo Bar (TEAMID)`         |
-| `APPLE_ID`                    | 公証用 Apple ID                                         |
-| `APPLE_PASSWORD`              | 公証用 App-specific Password                            |
-| `APPLE_TEAM_ID`               | Apple Developer Team ID (10 桁)                          |
-
-base64 化の例:
-
-```sh
-base64 -i developer_id_application.p12 | pbcopy
-```
-
-### Windows
-
-| Secret 名                      | 用途                                                |
-| ----------------------------- | --------------------------------------------------- |
-| `WINDOWS_CERTIFICATE`          | EV/OV コード署名証明書 (.pfx) を base64 化したもの    |
-| `WINDOWS_CERTIFICATE_PASSWORD` | .pfx のパスワード                                   |
-
-> EV 証明書は HSM 必須のため、現状の GitHub Actions では OV (ファイル証明書) を推奨。
-> SmartScreen の reputation 蓄積期間 (数ヶ月) を考慮した運用が必要。
+現状のビルドは macOS では ad-hoc 署名、Windows では unsigned となり、
+Gatekeeper / SmartScreen で警告が表示されるが起動は可能。
 
 ## 動作確認手順
 
