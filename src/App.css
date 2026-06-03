@@ -156,13 +156,42 @@ input[type="search"] {
 
 /* ---------- Sidebar ---------- */
 .sidebar {
-  width: 280px;
   flex-shrink: 0;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
+  min-width: 220px;
+  max-width: 520px;
+}
+.sidebar__resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 5;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+}
+.sidebar__resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 3px;
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.12s;
+}
+.sidebar__resize:hover::after,
+.is-resizing-sidebar .sidebar__resize::after {
+  background: var(--accent);
+}
+.is-resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
 }
 .sidebar__search {
   padding: 10px;

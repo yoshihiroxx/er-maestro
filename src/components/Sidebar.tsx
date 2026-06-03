@@ -1,7 +1,29 @@
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useSchemaStore, type SchemaFilter } from "../store/schemaStore";
 
 const NO_SCHEMA_FILTER: SchemaFilter = "__none__";
+const SIDEBAR_WIDTH_KEY = "er-maestro:sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 280;
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 520;
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
+}
+
+function initialSidebarWidth(): number {
+  const saved = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  if (!saved) return DEFAULT_SIDEBAR_WIDTH;
+  const width = Number(saved);
+  return Number.isFinite(width)
+    ? clampSidebarWidth(width)
+    : DEFAULT_SIDEBAR_WIDTH;
+}
 
 export function Sidebar() {
   const schema = useSchemaStore((s) => s.schema);
@@ -14,6 +36,38 @@ export function Sidebar() {
   const jumpToTable = useSchemaStore((s) => s.jumpToTable);
 
   const [showWarnings, setShowWarnings] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
+
+  const handleResizeStart = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = sidebarWidth;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const nextWidth = clampSidebarWidth(
+          startWidth + moveEvent.clientX - startX,
+        );
+        setSidebarWidth(nextWidth);
+      };
+
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        const nextWidth = clampSidebarWidth(
+          startWidth + upEvent.clientX - startX,
+        );
+        setSidebarWidth(nextWidth);
+        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
+        document.body.classList.remove("is-resizing-sidebar");
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+      };
+
+      document.body.classList.add("is-resizing-sidebar");
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp, { once: true });
+    },
+    [sidebarWidth],
+  );
 
   const schemaOptions = useMemo(() => {
     const names = new Set<string>();
@@ -50,8 +104,15 @@ export function Sidebar() {
 
   if (!schema) {
     return (
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ width: sidebarWidth }}>
         <div className="sidebar__empty">スキーマ未読み込み</div>
+        <div
+          className="sidebar__resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="左カラムの幅を変更"
+          onPointerDown={handleResizeStart}
+        />
       </aside>
     );
   }
@@ -59,7 +120,7 @@ export function Sidebar() {
   const warnings = schema.warnings;
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ width: sidebarWidth }}>
       <div className="sidebar__search">
         <input
           id="sidebar-search-input"
@@ -150,6 +211,13 @@ export function Sidebar() {
           ) : null}
         </div>
       ) : null}
+      <div
+        className="sidebar__resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="左カラムの幅を変更"
+        onPointerDown={handleResizeStart}
+      />
     </aside>
   );
 }
