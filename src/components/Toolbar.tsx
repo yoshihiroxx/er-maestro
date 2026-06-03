@@ -10,6 +10,7 @@ const LAYOUTS: { value: LayoutKind; label: string }[] = [
 const EDGE_KINDS: { value: EdgeKind; label: string }[] = [
   { value: "smoothstep", label: "直交" },
   { value: "simplebezier", label: "曲線" },
+  { value: "straight", label: "直線" },
 ];
 
 export function Toolbar() {

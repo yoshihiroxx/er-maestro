@@ -11,7 +11,7 @@ import {
 } from "../api/recentStore";
 
 export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
-export type EdgeKind = "smoothstep" | "simplebezier";
+export type EdgeKind = "smoothstep" | "simplebezier" | "straight";
 export type Status = "idle" | "loading" | "error";
 export type SchemaFilter = "__all__" | "__none__" | string;
 
@@ -63,7 +63,8 @@ function readEdgeKindPref(): EdgeKind {
   if (typeof window === "undefined") return "smoothstep";
   try {
     const raw = window.localStorage.getItem(EDGE_KIND_STORAGE_KEY);
-    return raw === "simplebezier" ? "simplebezier" : "smoothstep";
+    if (raw === "simplebezier" || raw === "straight") return raw;
+    return "smoothstep";
   } catch {
     return "smoothstep";
   }

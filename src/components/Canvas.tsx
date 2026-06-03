@@ -196,11 +196,11 @@ export function Canvas() {
 
   const base = useMemo(() => {
     if (!schema) return { nodes: [], edges: [] };
-    const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
-    return {
-      nodes: graph.nodes,
-      edges: graph.edges.map((edge) => ({ ...edge, type: edgeKind })),
-    };
+      const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
+      return {
+        nodes: graph.nodes,
+        edges: graph.edges.map((edge) => ({ ...edge, type: edgeKind })),
+      };
   }, [schema, inferenceEnabled, edgeKind]);
   const adjacency = useMemo(
     () =>
