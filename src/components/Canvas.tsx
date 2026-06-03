@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -68,7 +68,9 @@ export function Canvas() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [fullLayoutNodes, setFullLayoutNodes] = useState<TNode[]>([]);
   const layoutToken = useRef(0);
+  const focusLayoutToken = useRef(0);
 
   // Re-run layout whenever the graph or chosen algorithm changes.
   useEffect(() => {
@@ -76,6 +78,7 @@ export function Canvas() {
     let cancelled = false;
     runLayout(layoutKind, base.nodes, base.edges).then((positioned) => {
       if (cancelled || token !== layoutToken.current) return;
+      setFullLayoutNodes(positioned);
       setNodes(positioned);
       setEdges(base.edges);
       requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
@@ -90,6 +93,47 @@ export function Canvas() {
     if (!selectedTableId) return null;
     return relatedTables(adjacency, selectedTableId, focusDepth);
   }, [adjacency, selectedTableId, focusDepth]);
+
+  const visibleTableIds = useMemo(() => {
+    if (!selectedTableId || !focusMode) return null;
+    return related;
+  }, [selectedTableId, focusMode, related]);
+
+  // When focus mode hides unrelated tables, lay out the visible subgraph by
+  // itself. That keeps filtered/selected relationships close together instead
+  // of preserving their far-apart coordinates from the full 700-table graph.
+  useEffect(() => {
+    const token = ++focusLayoutToken.current;
+    if (!visibleTableIds) {
+      setNodes(fullLayoutNodes);
+      return;
+    }
+    if (fullLayoutNodes.length === 0) return;
+
+    const focusNodes = fullLayoutNodes.filter((node) => visibleTableIds.has(node.id));
+    const focusEdges = base.edges.filter(
+      (edge) => visibleTableIds.has(edge.source) && visibleTableIds.has(edge.target),
+    );
+    let cancelled = false;
+    runLayout(layoutKind, focusNodes, focusEdges).then((positionedFocusNodes) => {
+      if (cancelled || token !== focusLayoutToken.current) return;
+      const positions = new Map(
+        positionedFocusNodes.map((node) => [node.id, node.position]),
+      );
+      setNodes(
+        fullLayoutNodes.map((node) => {
+          const position = positions.get(node.id);
+          return position ? { ...node, position } : node;
+        }),
+      );
+      if (useSchemaStore.getState().autoFitOnScope) {
+        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleTableIds, fullLayoutNodes, base.edges, layoutKind, setNodes, fitView]);
 
   // Pinned takes precedence over hovered so that clicking locks the focus
   // even as the cursor leaves the row.
@@ -204,6 +248,7 @@ export function Canvas() {
   const fittedJumpToken = useRef(jumpToken);
   useEffect(() => {
     if (nodes.length === 0) return;
+    if (visibleTableIds) return;
     if (fittedJumpToken.current !== jumpToken) {
       fittedJumpToken.current = jumpToken;
       return;
@@ -211,7 +256,15 @@ export function Canvas() {
     if (!useSchemaStore.getState().autoFitOnScope) return;
     const id = requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
     return () => cancelAnimationFrame(id);
-  }, [selectedTableId, focusMode, focusDepth, fitView, nodes.length, jumpToken]);
+  }, [
+    selectedTableId,
+    focusMode,
+    focusDepth,
+    fitView,
+    nodes.length,
+    jumpToken,
+    visibleTableIds,
+  ]);
 
   // Search → Enter → center the viewport on the selected table.
   useEffect(() => {

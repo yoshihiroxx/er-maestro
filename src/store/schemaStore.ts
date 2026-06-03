@@ -13,6 +13,7 @@ import {
 export type LayoutKind = "dagre-lr" | "dagre-tb" | "elk";
 export type EdgeKind = "smoothstep" | "simplebezier";
 export type Status = "idle" | "loading" | "error";
+export type SchemaFilter = "__all__" | "__none__" | string;
 
 const INFERENCE_STORAGE_KEY = "er-maestro:inferenceEnabled";
 const AUTO_FIT_ON_SCOPE_STORAGE_KEY = "er-maestro:autoFitOnScope";
@@ -98,6 +99,7 @@ interface SchemaState {
   layoutKind: LayoutKind;
   edgeKind: EdgeKind;
   searchQuery: string;
+  schemaFilter: SchemaFilter;
   inferenceEnabled: boolean;
   /**
    * When true, selecting/focusing a scope auto-fits the viewport. Schema loads,
@@ -126,6 +128,7 @@ interface SchemaState {
   setLayoutKind: (kind: LayoutKind) => void;
   setEdgeKind: (kind: EdgeKind) => void;
   setSearchQuery: (query: string) => void;
+  setSchemaFilter: (filter: SchemaFilter) => void;
   setInferenceEnabled: (on: boolean) => void;
   setAutoFitOnScope: (on: boolean) => void;
   clearSelection: () => void;
@@ -159,6 +162,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
   layoutKind: "dagre-lr",
   edgeKind: readEdgeKindPref(),
   searchQuery: "",
+  schemaFilter: "__all__",
   inferenceEnabled: readInferencePref(),
   autoFitOnScope: readAutoFitOnScopePref(),
   jumpToken: 0,
@@ -177,6 +181,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         hoveredColumn: null,
         pinnedColumn: null,
         searchQuery: "",
+        schemaFilter: "__all__",
         sourceLabel:
           paths.length === 1 ? paths[0] : `${paths.length} 件のパス`,
       });
@@ -197,6 +202,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         error: null,
         selectedTableId: null,
         searchQuery: "",
+        schemaFilter: "__all__",
         sourceLabel: "テキスト入力",
         sqlPasteOpen: false,
       });
@@ -215,6 +221,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
       hoveredColumn: null,
       pinnedColumn: null,
       sourceLabel: label ?? "テキスト入力",
+      schemaFilter: "__all__",
     }),
 
   selectTable: (id) =>
@@ -234,6 +241,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     set({ edgeKind: kind });
   },
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setSchemaFilter: (filter) => set({ schemaFilter: filter }),
   setInferenceEnabled: (on) => {
     writeInferencePref(on);
     set({ inferenceEnabled: on });
@@ -256,6 +264,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
       pinnedColumn: null,
       sourceLabel: null,
       searchQuery: "",
+      schemaFilter: "__all__",
     }),
   openSqlPaste: () => set({ sqlPasteOpen: true }),
   closeSqlPaste: () => set({ sqlPasteOpen: false }),
