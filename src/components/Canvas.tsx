@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   ControlButton,
   Controls,
   MarkerType,
@@ -12,6 +20,7 @@ import {
   useReactFlow,
   type Edge,
   type NodeMouseHandler,
+  type Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -31,11 +40,88 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts";
 // Defined at module scope so the reference is stable across renders
 // (inline objects would remount every node and spam a console warning).
 const nodeTypes = { table: TableNode };
+const edgeTypes = { horizontalBezier: HorizontalBezierEdge };
 const EMPTY_COLUMN_SET: ReadonlySet<string> = new Set<string>();
 const EDGE_COLOR_ACCENT = "#2563eb";
 const EDGE_COLOR_DEFAULT = "#b1b7c3";
 const EDGE_COLOR_VIEW = "#047857";
+const BEZIER_STUB_LENGTH = 16;
 type MarkerEndObject = Extract<NonNullable<Edge["markerEnd"]>, object>;
+
+type HorizontalBezierEdgeProps = {
+  id: string;
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  sourcePosition: Position;
+  targetPosition: Position;
+  markerStart?: string;
+  markerEnd?: string;
+  style?: CSSProperties;
+  interactionWidth?: number;
+};
+
+function positionVector(position: Position): { x: number; y: number } {
+  switch (position) {
+    case "left":
+      return { x: -1, y: 0 };
+    case "right":
+      return { x: 1, y: 0 };
+    case "top":
+      return { x: 0, y: -1 };
+    case "bottom":
+      return { x: 0, y: 1 };
+    default:
+      return { x: 1, y: 0 };
+  }
+}
+
+function HorizontalBezierEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerStart,
+  markerEnd,
+  style,
+  interactionWidth,
+}: HorizontalBezierEdgeProps) {
+  const sourceVector = positionVector(sourcePosition);
+  const targetVector = positionVector(targetPosition);
+  const sourceStubX = sourceX + sourceVector.x * BEZIER_STUB_LENGTH;
+  const sourceStubY = sourceY + sourceVector.y * BEZIER_STUB_LENGTH;
+  const targetStubX = targetX + targetVector.x * BEZIER_STUB_LENGTH;
+  const targetStubY = targetY + targetVector.y * BEZIER_STUB_LENGTH;
+  const controlGap = Math.max(
+    40,
+    Math.min(160, Math.abs(targetStubX - sourceStubX) / 2),
+  );
+  const sourceControlX = sourceStubX + sourceVector.x * controlGap;
+  const sourceControlY = sourceStubY + sourceVector.y * controlGap;
+  const targetControlX = targetStubX + targetVector.x * controlGap;
+  const targetControlY = targetStubY + targetVector.y * controlGap;
+  const path = [
+    `M ${sourceX},${sourceY}`,
+    `L ${sourceStubX},${sourceStubY}`,
+    `C ${sourceControlX},${sourceControlY} ${targetControlX},${targetControlY} ${targetStubX},${targetStubY}`,
+    `L ${targetX},${targetY}`,
+  ].join(" ");
+
+  return (
+    <BaseEdge
+      id={id}
+      path={path}
+      markerStart={markerStart}
+      markerEnd={markerEnd}
+      style={style}
+      interactionWidth={interactionWidth}
+    />
+  );
+}
 
 function edgeRelationship(edge: Edge): Relationship | undefined {
   return (edge.data as { relationship?: Relationship } | undefined)
@@ -196,11 +282,14 @@ export function Canvas() {
 
   const base = useMemo(() => {
     if (!schema) return { nodes: [], edges: [] };
-      const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
-      return {
-        nodes: graph.nodes,
-        edges: graph.edges.map((edge) => ({ ...edge, type: edgeKind })),
-      };
+    const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
+    return {
+      nodes: graph.nodes,
+      edges: graph.edges.map((edge) => ({
+        ...edge,
+        type: edgeKind === "simplebezier" ? "horizontalBezier" : edgeKind,
+      })),
+    };
   }, [schema, inferenceEnabled, edgeKind]);
   const adjacency = useMemo(
     () =>
@@ -477,6 +566,7 @@ export function Canvas() {
       onNodeClick={onNodeClick}
       onPaneClick={onPaneClick}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       nodesConnectable={false}
       elementsSelectable
       onlyRenderVisibleElements
