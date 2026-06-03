@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sqlparser::ast::{
-    AlterTable, AlterTableOperation, ColumnDef, CreateTable, CreateView, Expr,
+    AlterTable, AlterTableOperation, ColumnDef, CreateIndex, CreateTable, CreateView, Expr,
     ForeignKeyConstraint, Ident, IndexColumn, ObjectName, Query, SetExpr, Spanned, Statement,
     TableConstraint, TableFactor, TableWithJoins,
 };
@@ -14,7 +14,8 @@ use sqlparser::tokenizer::Span;
 
 use super::dialect::ParseWarning;
 use crate::model::{
-    table_key, Column, Relationship, RelationshipVia, SchemaModel, Table, TableKind,
+    table_key, Column, Relationship, RelationshipCardinality, RelationshipVia, SchemaModel, Table,
+    TableKind,
 };
 
 /// Accumulates tables and pending foreign keys across many files/statements,
@@ -73,6 +74,7 @@ impl Accumulator {
                 }
                 Statement::AlterTable(at) => self.ingest_alter_table(at, source_file, line, column),
                 Statement::CreateView(cv) => self.ingest_create_view(cv, source_file, line, column),
+                Statement::CreateIndex(ci) => self.ingest_create_index(ci),
                 _ => {}
             }
         }
@@ -108,9 +110,7 @@ impl Accumulator {
                 }
                 TableConstraint::Unique(u) => {
                     let names = index_column_names(&u.columns);
-                    if names.len() == 1 {
-                        mark_column(&mut columns, &names[0], |c| c.unique = true);
-                    }
+                    mark_unique_columns(&mut columns, &names);
                 }
                 TableConstraint::ForeignKey(fk) => {
                     let from_cols = idents_to_strings(&fk.columns);
@@ -124,11 +124,32 @@ impl Accumulator {
             }
         }
 
+        let mut unique_constraints: Vec<Vec<String>> = ct
+            .constraints
+            .iter()
+            .filter_map(|constraint| match constraint {
+                TableConstraint::Unique(u) => {
+                    let names = index_column_names(&u.columns);
+                    (!names.is_empty()).then_some(names)
+                }
+                _ => None,
+            })
+            .collect();
+        for column in &columns {
+            if column.unique && !column.is_primary_key {
+                let names = vec![column.name.clone()];
+                if !has_same_columns(&unique_constraints, &names) {
+                    unique_constraints.push(names);
+                }
+            }
+        }
+
         let table = Table {
             id: key.clone(),
             name,
             schema,
             columns,
+            unique_constraints,
             source_file: source_file.to_string(),
             kind: TableKind::Table,
         };
@@ -149,8 +170,8 @@ impl Accumulator {
         let key = table_key(schema.as_deref(), &name);
         for op in &at.operations {
             match op {
-                AlterTableOperation::AddConstraint { constraint, .. } => {
-                    if let TableConstraint::ForeignKey(fk) = constraint {
+                AlterTableOperation::AddConstraint { constraint, .. } => match constraint {
+                    TableConstraint::ForeignKey(fk) => {
                         let from_cols = idents_to_strings(&fk.columns);
                         let (line, column) = first_known(
                             location_from_span(constraint.span()),
@@ -158,7 +179,12 @@ impl Accumulator {
                         );
                         self.push_fk(&key, from_cols, fk, source_file, line, column);
                     }
-                }
+                    TableConstraint::Unique(u) => {
+                        let names = index_column_names(&u.columns);
+                        self.add_unique_constraint(&key, names);
+                    }
+                    _ => {}
+                },
                 AlterTableOperation::AddColumn { column_def, .. } => {
                     let Some(&table_index) = self.index.get(&key) else {
                         self.warnings.push(
@@ -191,6 +217,18 @@ impl Accumulator {
                 _ => {}
             }
         }
+    }
+
+    fn ingest_create_index(&mut self, ci: CreateIndex) {
+        if !ci.unique || ci.predicate.is_some() {
+            return;
+        }
+        let (schema, name) = split_object_name(&ci.table_name);
+        if name.is_empty() {
+            return;
+        }
+        let key = table_key(schema.as_deref(), &name);
+        self.add_unique_constraint(&key, index_column_names(&ci.columns));
     }
 
     fn column_from_def(
@@ -257,6 +295,7 @@ impl Accumulator {
             name,
             schema,
             columns: Vec::new(),
+            unique_constraints: Vec::new(),
             source_file: source_file.to_string(),
             kind: TableKind::View,
         };
@@ -361,6 +400,8 @@ impl Accumulator {
             if !seen.insert(id.clone()) {
                 continue; // dedupe identical FKs (e.g. declared in CREATE and ALTER)
             }
+            let from_cardinality =
+                fk_from_cardinality(&self.tables, &fk.from_table, &fk.from_columns);
 
             relationships.push(Relationship {
                 id,
@@ -368,6 +409,8 @@ impl Accumulator {
                 from_columns: fk.from_columns,
                 to_table: fk.to_table,
                 to_columns: fk.to_columns,
+                from_cardinality: Some(from_cardinality),
+                to_cardinality: Some(RelationshipCardinality::One),
                 on_delete: fk.on_delete,
                 on_update: fk.on_update,
                 via: RelationshipVia::ForeignKey,
@@ -398,6 +441,8 @@ impl Accumulator {
                 from_columns: Vec::new(),
                 to_table: vd.dep_table,
                 to_columns: Vec::new(),
+                from_cardinality: None,
+                to_cardinality: None,
                 on_delete: None,
                 on_update: None,
                 via: RelationshipVia::ViewDependency,
@@ -449,6 +494,8 @@ impl Accumulator {
                     from_columns: vec![col_name],
                     to_table: target,
                     to_columns: to_cols,
+                    from_cardinality: None,
+                    to_cardinality: None,
                     on_delete: None,
                     on_update: None,
                     via: RelationshipVia::Inferred,
@@ -463,6 +510,20 @@ impl Accumulator {
             warnings: self.warnings.into_iter().map(|w| w.render()).collect(),
             dialect,
         }
+    }
+
+    fn add_unique_constraint(&mut self, table_key: &str, names: Vec<String>) {
+        if names.is_empty() {
+            return;
+        }
+        let Some(&table_index) = self.index.get(table_key) else {
+            return;
+        };
+        if has_same_columns(&self.tables[table_index].unique_constraints, &names) {
+            return;
+        }
+        mark_unique_columns(&mut self.tables[table_index].columns, &names);
+        self.tables[table_index].unique_constraints.push(names);
     }
 }
 
@@ -526,6 +587,69 @@ fn primary_key_of(tables: &[Table], key: &str) -> Vec<String> {
     }
 }
 
+fn fk_from_cardinality(
+    tables: &[Table],
+    table_key: &str,
+    from_columns: &[String],
+) -> RelationshipCardinality {
+    let optional = columns_nullable(tables, table_key, from_columns);
+    let unique = columns_are_unique(tables, table_key, from_columns);
+    match (optional, unique) {
+        (true, true) => RelationshipCardinality::ZeroOrOne,
+        (false, true) => RelationshipCardinality::One,
+        (true, false) => RelationshipCardinality::ZeroOrMany,
+        (false, false) => RelationshipCardinality::OneOrMany,
+    }
+}
+
+fn columns_nullable(tables: &[Table], key: &str, names: &[String]) -> bool {
+    let Some(table) = tables.iter().find(|t| t.id == key) else {
+        return true;
+    };
+    names.iter().any(|name| {
+        table
+            .columns
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(name))
+            .map(|c| c.nullable)
+            .unwrap_or(true)
+    })
+}
+
+fn columns_are_unique(tables: &[Table], key: &str, names: &[String]) -> bool {
+    let Some(table) = tables.iter().find(|t| t.id == key) else {
+        return false;
+    };
+    let primary_key: Vec<String> = table
+        .columns
+        .iter()
+        .filter(|c| c.is_primary_key)
+        .map(|c| c.name.clone())
+        .collect();
+    same_column_set(&primary_key, names) || has_same_columns(&table.unique_constraints, names)
+}
+
+fn has_same_columns(constraints: &[Vec<String>], names: &[String]) -> bool {
+    constraints
+        .iter()
+        .any(|constraint| same_column_set(constraint, names))
+}
+
+fn same_column_set(a: &[String], b: &[String]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut left = normalized_column_set(a);
+    let mut right = normalized_column_set(b);
+    left.sort();
+    right.sort();
+    left == right
+}
+
+fn normalized_column_set(names: &[String]) -> Vec<String> {
+    names.iter().map(|name| name.to_lowercase()).collect()
+}
+
 fn split_object_name(name: &ObjectName) -> (Option<String>, String) {
     let idents: Vec<&Ident> = name.0.iter().filter_map(|p| p.as_ident()).collect();
     match idents.as_slice() {
@@ -558,6 +682,12 @@ fn mark_column(columns: &mut [Column], name: &str, f: impl Fn(&mut Column)) {
         if c.name.eq_ignore_ascii_case(name) {
             f(c);
         }
+    }
+}
+
+fn mark_unique_columns(columns: &mut [Column], names: &[String]) {
+    if names.len() == 1 {
+        mark_column(columns, &names[0], |c| c.unique = true);
     }
 }
 

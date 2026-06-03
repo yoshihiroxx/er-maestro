@@ -9,9 +9,14 @@ export type Table = {
  */
 id: string, name: string, schema: string | null, columns: Array<Column>, 
 /**
+ * Unique constraints/indexes declared on the table. Each inner array is
+ * the constrained column set in declaration order.
+ */
+unique_constraints: Array<Array<string>>, 
+/**
  * Absolute path of the `.sql` file this table was defined in.
  */
-source_file: string,
+source_file: string, 
 /**
  * Whether this entry is a regular table or a view.
  */

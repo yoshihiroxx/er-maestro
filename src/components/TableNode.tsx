@@ -7,6 +7,15 @@ import {
 } from "../graph/buildGraph";
 import { useSchemaStore } from "../store/schemaStore";
 
+function uniqueConstraintsForColumn(
+  uniqueConstraints: string[][],
+  columnName: string,
+): string[][] {
+  return uniqueConstraints.filter((constraint) =>
+    constraint.some((name) => name.toLowerCase() === columnName.toLowerCase()),
+  );
+}
+
 function TableNodeComponent({ id, data }: NodeProps) {
   const { table, state, activeColumnName, relatedColumnNames } =
     data as TableNodeData;
@@ -56,6 +65,18 @@ function TableNodeComponent({ id, data }: NodeProps) {
         {table.columns.map((col) => {
           const isActive = activeColumnName === col.name;
           const isRelated = relatedColumnNames.has(col.name);
+          const columnUniqueConstraints = uniqueConstraintsForColumn(
+            table.unique_constraints,
+            col.name,
+          );
+          const compositeUniqueConstraints = columnUniqueConstraints.filter(
+            (constraint) => constraint.length > 1,
+          );
+          const showSingleUnique = col.unique && !col.is_primary_key;
+          const showCompositeUnique =
+            !showSingleUnique &&
+            !col.is_primary_key &&
+            compositeUniqueConstraints.length > 0;
           const rowClass = isActive
             ? "table-node__row table-node__row--active"
             : isRelated
@@ -86,6 +107,21 @@ function TableNodeComponent({ id, data }: NodeProps) {
                 {col.is_foreign_key ? (
                   <span className="badge badge--fk" title="外部キー">
                     FK
+                  </span>
+                ) : null}
+                {showSingleUnique ? (
+                  <span className="badge badge--uq" title="ユニーク">
+                    UQ
+                  </span>
+                ) : null}
+                {showCompositeUnique ? (
+                  <span
+                    className="badge badge--uq badge--uq-composite"
+                    title={compositeUniqueConstraints
+                      .map((constraint) => `UNIQUE(${constraint.join(", ")})`)
+                      .join("\n")}
+                  >
+                    UQ*
                   </span>
                 ) : null}
                 <span

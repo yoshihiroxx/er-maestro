@@ -7,3 +7,4 @@ export type { Column } from "./Column";
 export type { Relationship } from "./Relationship";
 export type { TableKind } from "./TableKind";
 export type { RelationshipVia } from "./RelationshipVia";
+export type { RelationshipCardinality } from "./RelationshipCardinality";

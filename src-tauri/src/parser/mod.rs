@@ -58,7 +58,7 @@ pub fn parse_text(sql: &str, hint: Option<&str>) -> SchemaModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{RelationshipVia, TableKind};
+    use crate::model::{RelationshipCardinality, RelationshipVia, TableKind};
 
     fn table_ids(m: &SchemaModel) -> Vec<String> {
         let mut v: Vec<String> = m.tables.iter().map(|t| t.id.clone()).collect();
@@ -209,6 +209,131 @@ mod tests {
         assert_eq!(m.relationships[0].from_table, "posts");
         assert_eq!(m.relationships[0].from_columns, vec!["user_id"]);
         assert_eq!(m.relationships[0].to_table, "users");
+    }
+
+    #[test]
+    fn unique_constraints_feed_cardinality() {
+        let sql = r#"
+            CREATE TABLE users (id INT PRIMARY KEY);
+            CREATE TABLE profiles (
+                id INT PRIMARY KEY,
+                user_id INT UNIQUE REFERENCES users (id)
+            );
+            CREATE TABLE sessions (
+                id INT PRIMARY KEY,
+                user_id INT NOT NULL UNIQUE,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            );
+            CREATE TABLE orders (
+                id INT PRIMARY KEY,
+                user_id INT REFERENCES users (id)
+            );
+            CREATE TABLE invoices (
+                id INT PRIMARY KEY,
+                user_id INT NOT NULL REFERENCES users (id)
+            );
+        "#;
+        let m = parse_text(sql, None);
+
+        let cardinality = |from_table: &str| {
+            m.relationships
+                .iter()
+                .find(|r| r.from_table == from_table)
+                .unwrap()
+                .from_cardinality
+                .as_ref()
+                .unwrap()
+        };
+
+        assert_eq!(cardinality("profiles"), &RelationshipCardinality::ZeroOrOne);
+        assert_eq!(cardinality("sessions"), &RelationshipCardinality::One);
+        assert_eq!(cardinality("orders"), &RelationshipCardinality::ZeroOrMany);
+        assert_eq!(cardinality("invoices"), &RelationshipCardinality::OneOrMany);
+    }
+
+    #[test]
+    fn table_level_composite_unique_is_preserved() {
+        let sql = r#"
+            CREATE TABLE accounts (
+                tenant_id INT NOT NULL,
+                account_no INT NOT NULL,
+                UNIQUE (tenant_id, account_no)
+            );
+            CREATE TABLE account_profiles (
+                id INT PRIMARY KEY,
+                tenant_id INT NOT NULL,
+                account_no INT NOT NULL,
+                FOREIGN KEY (tenant_id, account_no)
+                    REFERENCES accounts (tenant_id, account_no)
+            );
+        "#;
+        let m = parse_text(sql, None);
+        let accounts = m.tables.iter().find(|t| t.id == "accounts").unwrap();
+        assert_eq!(
+            accounts.unique_constraints,
+            vec![vec!["tenant_id".to_string(), "account_no".to_string()]]
+        );
+        assert!(!accounts.columns.iter().any(|c| c.unique));
+
+        let rel = m
+            .relationships
+            .iter()
+            .find(|r| r.from_table == "account_profiles")
+            .unwrap();
+        assert_eq!(
+            rel.from_cardinality.as_ref(),
+            Some(&RelationshipCardinality::OneOrMany)
+        );
+    }
+
+    #[test]
+    fn alter_unique_and_unique_index_are_preserved() {
+        let sql = r#"
+            CREATE TABLE users (id INT PRIMARY KEY);
+            CREATE TABLE profiles (
+                id INT PRIMARY KEY,
+                user_id INT REFERENCES users (id),
+                external_id TEXT
+            );
+            ALTER TABLE profiles ADD CONSTRAINT profiles_user_uq UNIQUE (user_id);
+            CREATE UNIQUE INDEX profiles_external_uq ON profiles (external_id);
+        "#;
+        let m = parse_text(sql, None);
+        let profiles = m.tables.iter().find(|t| t.id == "profiles").unwrap();
+        assert!(profiles
+            .unique_constraints
+            .iter()
+            .any(|c| c == &vec!["user_id".to_string()]));
+        assert!(profiles
+            .unique_constraints
+            .iter()
+            .any(|c| c == &vec!["external_id".to_string()]));
+        assert!(
+            profiles
+                .columns
+                .iter()
+                .find(|c| c.name == "user_id")
+                .unwrap()
+                .unique
+        );
+        assert!(
+            profiles
+                .columns
+                .iter()
+                .find(|c| c.name == "external_id")
+                .unwrap()
+                .unique
+        );
+
+        let rel = m
+            .relationships
+            .iter()
+            .find(|r| r.from_table == "profiles")
+            .unwrap();
+        assert_eq!(
+            rel.from_cardinality.as_ref(),
+            Some(&RelationshipCardinality::ZeroOrOne)
+        );
     }
 
     #[test]

@@ -52,6 +52,10 @@ pub struct Table {
     pub name: String,
     pub schema: Option<String>,
     pub columns: Vec<Column>,
+    /// Unique constraints/indexes declared on the table. Each inner array is
+    /// the constrained column set in declaration order.
+    #[serde(default)]
+    pub unique_constraints: Vec<Vec<String>>,
     /// Absolute path of the `.sql` file this table was defined in.
     pub source_file: String,
     /// Whether this entry is a regular table or a view.
@@ -71,6 +75,16 @@ pub struct Column {
     pub unique: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export, export_to = "../../src/types/")]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipCardinality {
+    One,
+    ZeroOrOne,
+    OneOrMany,
+    ZeroOrMany,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../src/types/")]
 pub struct Relationship {
@@ -82,6 +96,14 @@ pub struct Relationship {
     /// Parent side (the referenced table), normalized key.
     pub to_table: String,
     pub to_columns: Vec<String>,
+    /// Cardinality at the child/from side of a declared FK. `None` for edges
+    /// that are not declared foreign keys (inferred/view dependencies).
+    #[serde(default)]
+    pub from_cardinality: Option<RelationshipCardinality>,
+    /// Cardinality at the parent/to side of a declared FK. `None` for edges
+    /// that are not declared foreign keys (inferred/view dependencies).
+    #[serde(default)]
+    pub to_cardinality: Option<RelationshipCardinality>,
     pub on_delete: Option<String>,
     pub on_update: Option<String>,
     /// How this relationship was derived.

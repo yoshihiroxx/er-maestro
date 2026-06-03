@@ -4,6 +4,7 @@ import {
   BackgroundVariant,
   ControlButton,
   Controls,
+  MarkerType,
   MiniMap,
   ReactFlow,
   useEdgesState,
@@ -15,9 +16,14 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useSchemaStore } from "../store/schemaStore";
-import { buildGraph, type NodeState, type TableNode as TNode } from "../graph/buildGraph";
+import {
+  buildGraph,
+  type NodeState,
+  type TableNode as TNode,
+} from "../graph/buildGraph";
 import { buildAdjacency, relatedTables } from "../graph/neighbors";
 import { runLayout } from "../graph/layout";
+import type { Relationship, RelationshipCardinality } from "../types";
 import { ExportPanel } from "./ExportPanel";
 import { TableNode } from "./TableNode";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
@@ -26,6 +32,149 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts";
 // (inline objects would remount every node and spam a console warning).
 const nodeTypes = { table: TableNode };
 const EMPTY_COLUMN_SET: ReadonlySet<string> = new Set<string>();
+const EDGE_COLOR_ACCENT = "#2563eb";
+const EDGE_COLOR_DEFAULT = "#b1b7c3";
+const EDGE_COLOR_VIEW = "#047857";
+type MarkerEndObject = Extract<NonNullable<Edge["markerEnd"]>, object>;
+
+function edgeRelationship(edge: Edge): Relationship | undefined {
+  return (edge.data as { relationship?: Relationship } | undefined)
+    ?.relationship;
+}
+
+function relationshipEdgeClass(edge: Edge): string | null {
+  const relationship = edgeRelationship(edge);
+
+  if (relationship?.via === "view_dependency") return "edge--view-dependency";
+  if (relationship?.inferred) return "edge--inferred";
+  return null;
+}
+
+function edgeClassName(
+  ...classes: Array<string | null | undefined>
+): string | undefined {
+  const className = classes.filter(Boolean).join(" ");
+  return className || undefined;
+}
+
+function edgeColorForClassName(
+  className: string | undefined,
+): string | undefined {
+  if (!className) return EDGE_COLOR_DEFAULT;
+  if (className.includes("edge--column-active")) return EDGE_COLOR_ACCENT;
+  if (className.includes("edge--view-dependency")) return EDGE_COLOR_VIEW;
+  if (className.includes("edge--active")) return EDGE_COLOR_ACCENT;
+  return EDGE_COLOR_DEFAULT;
+}
+
+function crowMarkerTone(className: string | undefined): "accent" | "default" {
+  return edgeColorForClassName(className) === EDGE_COLOR_ACCENT
+    ? "accent"
+    : "default";
+}
+
+function crowMarkerId(
+  cardinality: RelationshipCardinality | null | undefined,
+  tone: "accent" | "default",
+): string | undefined {
+  if (!cardinality) return undefined;
+  return `crow-${cardinality}-${tone}`;
+}
+
+function coloredMarkerEnd(
+  edge: Edge,
+  color: string | undefined,
+): Edge["markerEnd"] {
+  if (!color) return edge.markerEnd;
+  const base: Partial<MarkerEndObject> =
+    typeof edge.markerEnd === "object" && edge.markerEnd !== null
+      ? edge.markerEnd
+      : {};
+  return {
+    ...base,
+    type: base.type ?? MarkerType.ArrowClosed,
+    color,
+  };
+}
+
+function edgeMarkersForRelationship(
+  edge: Edge,
+  className: string | undefined,
+): Pick<Edge, "markerStart" | "markerEnd"> {
+  const relationship = edgeRelationship(edge);
+  if (relationship?.via !== "foreign_key" || relationship.inferred) {
+    return {
+      markerStart: undefined,
+      markerEnd: coloredMarkerEnd(edge, edgeColorForClassName(className)),
+    };
+  }
+  const tone = crowMarkerTone(className);
+  return {
+    markerStart: crowMarkerId(relationship.from_cardinality, tone),
+    markerEnd: crowMarkerId(relationship.to_cardinality, tone),
+  };
+}
+
+function CrowFootMarkers() {
+  const tones = [
+    { name: "default", color: EDGE_COLOR_DEFAULT },
+    { name: "accent", color: EDGE_COLOR_ACCENT },
+  ] as const;
+  const cardinalities: RelationshipCardinality[] = [
+    "one",
+    "zero_or_one",
+    "one_or_many",
+    "zero_or_many",
+  ];
+
+  return (
+    <svg aria-hidden="true" className="crow-markers">
+      <defs>
+        {tones.flatMap(({ name, color }) =>
+          cardinalities.map((cardinality) => (
+            <marker
+              key={`${cardinality}-${name}`}
+              id={`crow-${cardinality}-${name}`}
+              viewBox="-10 -10 20 20"
+              refX="6"
+              refY="0"
+              markerWidth="14"
+              markerHeight="14"
+              markerUnits="strokeWidth"
+              orient="auto-start-reverse"
+            >
+              <g
+                fill="none"
+                stroke={color}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.45"
+              >
+                {cardinality === "zero_or_one" ||
+                cardinality === "zero_or_many" ? (
+                  <circle cx="-5" cy="0" r="2.6" />
+                ) : null}
+                {cardinality === "one" ||
+                cardinality === "zero_or_one" ||
+                cardinality === "one_or_many" ? (
+                  <line x1="-1" y1="-5.2" x2="-1" y2="5.2" />
+                ) : null}
+                {cardinality === "one_or_many" ||
+                cardinality === "zero_or_many" ? (
+                  <>
+                    <line x1="2" y1="0" x2="7.5" y2="-5.2" />
+                    <line x1="2" y1="0" x2="8" y2="0" />
+                    <line x1="2" y1="0" x2="7.5" y2="5.2" />
+                  </>
+                ) : null}
+              </g>
+            </marker>
+          )),
+        )}
+      </defs>
+    </svg>
+  );
+}
 
 export function Canvas() {
   const schema = useSchemaStore((s) => s.schema);
@@ -45,17 +194,14 @@ export function Canvas() {
 
   const { fitView, setCenter } = useReactFlow();
 
-  const base = useMemo(
-    () => {
-      if (!schema) return { nodes: [], edges: [] };
-      const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
-      return {
-        nodes: graph.nodes,
-        edges: graph.edges.map((edge) => ({ ...edge, type: edgeKind })),
-      };
-    },
-    [schema, inferenceEnabled, edgeKind],
-  );
+  const base = useMemo(() => {
+    if (!schema) return { nodes: [], edges: [] };
+    const graph = buildGraph(schema, { includeInferred: inferenceEnabled });
+    return {
+      nodes: graph.nodes,
+      edges: graph.edges.map((edge) => ({ ...edge, type: edgeKind })),
+    };
+  }, [schema, inferenceEnabled, edgeKind]);
   const adjacency = useMemo(
     () =>
       buildAdjacency(
@@ -110,30 +256,42 @@ export function Canvas() {
     }
     if (fullLayoutNodes.length === 0) return;
 
-    const focusNodes = fullLayoutNodes.filter((node) => visibleTableIds.has(node.id));
+    const focusNodes = fullLayoutNodes.filter((node) =>
+      visibleTableIds.has(node.id),
+    );
     const focusEdges = base.edges.filter(
-      (edge) => visibleTableIds.has(edge.source) && visibleTableIds.has(edge.target),
+      (edge) =>
+        visibleTableIds.has(edge.source) && visibleTableIds.has(edge.target),
     );
     let cancelled = false;
-    runLayout(layoutKind, focusNodes, focusEdges).then((positionedFocusNodes) => {
-      if (cancelled || token !== focusLayoutToken.current) return;
-      const positions = new Map(
-        positionedFocusNodes.map((node) => [node.id, node.position]),
-      );
-      setNodes(
-        fullLayoutNodes.map((node) => {
-          const position = positions.get(node.id);
-          return position ? { ...node, position } : node;
-        }),
-      );
-      if (useSchemaStore.getState().autoFitOnScope) {
-        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
-      }
-    });
+    runLayout(layoutKind, focusNodes, focusEdges).then(
+      (positionedFocusNodes) => {
+        if (cancelled || token !== focusLayoutToken.current) return;
+        const positions = new Map(
+          positionedFocusNodes.map((node) => [node.id, node.position]),
+        );
+        setNodes(
+          fullLayoutNodes.map((node) => {
+            const position = positions.get(node.id);
+            return position ? { ...node, position } : node;
+          }),
+        );
+        if (useSchemaStore.getState().autoFitOnScope) {
+          requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
+        }
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, [visibleTableIds, fullLayoutNodes, base.edges, layoutKind, setNodes, fitView]);
+  }, [
+    visibleTableIds,
+    fullLayoutNodes,
+    base.edges,
+    layoutKind,
+    setNodes,
+    fitView,
+  ]);
 
   // Pinned takes precedence over hovered so that clicking locks the focus
   // even as the cursor leaves the row.
@@ -209,33 +367,54 @@ export function Canvas() {
         },
       };
     });
-  }, [nodes, related, selectedTableId, focusMode, activeColumn, relatedByTable]);
+  }, [
+    nodes,
+    related,
+    selectedTableId,
+    focusMode,
+    activeColumn,
+    relatedByTable,
+  ]);
 
   const displayEdges = useMemo<Edge[]>(() => {
     const hasActiveColumn = activeColumn !== null;
     return edges.map((e) => {
       const isColumnActive = activeEdgeIds.has(e.id);
       let hidden = false;
-      let className: string | undefined;
+      let stateClassName: string | undefined;
       if (!related) {
         if (hasActiveColumn) {
-          className = isColumnActive ? "edge--column-active" : "edge--column-dim";
+          stateClassName = isColumnActive
+            ? "edge--column-active"
+            : "edge--column-dim";
         }
       } else {
         const active = related.has(e.source) && related.has(e.target);
         hidden = focusMode ? !active : false;
         if (hasActiveColumn) {
-          className = isColumnActive
+          stateClassName = isColumnActive
             ? "edge--column-active"
             : active
-            ? "edge--column-dim"
-            : "edge--dim";
+              ? "edge--column-dim"
+              : "edge--dim";
         } else {
-          className = active ? "edge--active" : "edge--dim";
+          stateClassName = active ? "edge--active" : "edge--dim";
         }
       }
-      if ((e.hidden ?? false) === hidden && e.className === className) return e;
-      return { ...e, hidden, className };
+      const className = edgeClassName(relationshipEdgeClass(e), stateClassName);
+      const { markerStart, markerEnd } = edgeMarkersForRelationship(
+        e,
+        className,
+      );
+      if (
+        (e.hidden ?? false) === hidden &&
+        e.className === className &&
+        e.markerStart === markerStart &&
+        e.markerEnd === markerEnd
+      ) {
+        return e;
+      }
+      return { ...e, hidden, className, markerStart, markerEnd };
     });
   }, [edges, related, focusMode, activeColumn, activeEdgeIds]);
 
@@ -254,7 +433,9 @@ export function Canvas() {
       return;
     }
     if (!useSchemaStore.getState().autoFitOnScope) return;
-    const id = requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
+    const id = requestAnimationFrame(() =>
+      fitView({ padding: 0.2, duration: 300 }),
+    );
     return () => cancelAnimationFrame(id);
   }, [
     selectedTableId,
@@ -304,6 +485,7 @@ export function Canvas() {
       proOptions={{ hideAttribution: true }}
       fitView
     >
+      <CrowFootMarkers />
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
       <Controls showInteractive={false}>
         <ControlButton

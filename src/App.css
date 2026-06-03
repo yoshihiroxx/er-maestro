@@ -518,6 +518,14 @@ input[type="search"] {
   background: #ede9fe;
   color: var(--fk);
 }
+.badge--uq {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.badge--uq-composite {
+  background: #e0f2fe;
+  color: #0369a1;
+}
 .badge--view {
   background: #d1fae5;
   color: #047857;
@@ -545,10 +553,12 @@ input[type="search"] {
 
 /* handles: small and unobtrusive */
 .table-node__handle {
-  width: 7px;
-  height: 7px;
-  background: var(--muted);
+  width: 5px;
+  height: 5px;
+  background: var(--border);
   border: 1px solid var(--panel);
+  opacity: 0.7;
+  z-index: 0;
 }
 
 /* column-level highlight: a single column on a table is the active focus */
@@ -570,9 +580,19 @@ input[type="search"] {
 }
 
 /* ---------- Edges ---------- */
+.crow-markers {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.react-flow__edge .react-flow__edge-path {
+  stroke: #b1b7c3;
+  stroke-width: 1.5;
+}
 .react-flow__edge.edge--active .react-flow__edge-path {
   stroke: var(--accent);
-  stroke-width: 2;
+  stroke-width: 1.8;
 }
 .react-flow__edge.edge--dim {
   opacity: 0.12;
@@ -587,7 +607,7 @@ input[type="search"] {
 }
 .react-flow__edge.edge--column-active .react-flow__edge-path {
   stroke: var(--accent);
-  stroke-width: 3;
+  stroke-width: 2;
 }
 .react-flow__edge.edge--column-dim {
   opacity: 0.18;
